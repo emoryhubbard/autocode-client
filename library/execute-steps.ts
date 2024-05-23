@@ -7,6 +7,7 @@ import * as path from "path";
 import * as child_process from "child_process";
 import  dynamicImport from '../library/dynamic-import';
 import { resolve } from 'path';
+import { getUpdatedFile, isPlaceholder } from "./get-updated-file";
 
 dotenv.config();
 
@@ -203,14 +204,28 @@ async function createOrModify(step: any, newContents: string) {
 
     const newLines = newContents.split("\n").length;
     const existingLines = existingContents.split("\n").length;
-    if (newLines < existingLines / 2) {
-        const updatedFunctions = await getUpdatedFunctions(existingContents, newContents);
-        fs.writeFileSync(targetFilePath, updatedFunctions);
+    if (containsPlaceholder(newContents.split("\n"))) {
+        console.log("Detected placeholder");
+        fs.writeFileSync(targetFilePath, getUpdatedFile(existingContents, newContents))
+    }
+    else if (newLines < existingLines / 2) {
+        console.log("Detected snippet without placeholder")
+        fs.writeFileSync(targetFilePath, getUpdatedFunctions(existingContents, newContents));
     } else {
+        console.log("Detected full file")
         fs.writeFileSync(targetFilePath, newContents);
     }
 
     console.log(`File ${targetFileName} ${existingContents ? "modified" : "created"}.`);
+}
+
+function containsPlaceholder(lines: string[]): boolean {
+    for (const line of lines) {
+        if (isPlaceholder(line)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 async function getPassingResponse(code: string, logs: string, userPrompt: string, target: string) {

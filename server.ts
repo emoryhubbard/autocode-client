@@ -4,6 +4,7 @@ import fs from "fs"; // Import the fs module
 import { promisify } from 'util';
 import { resolve } from 'path';
 import  dynamicImport from './library/dynamic-import';
+import { ASTtest, compareNoCommon, getUpdatedFile, hasSimpleCall, hasSimpleCallWithArrow, hasUniqueSimpleCallWithArrow, isPlaceholder, isUnique } from "./library/get-updated-file";
 
 dotenv.config();
 const app: Express = express();
@@ -46,6 +47,9 @@ const port = parseInt(process.env.PORT || "3000");
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
+//console.log("Testing if } is unique: " + isUnique("}", ["", "", "}"], ["", "}", "}"]));
+//console.log("isPlaceholder: " + isPlaceholder("  // ..."));
 
 // Run Autocode with the default feature setting if set
 if (process.env.FEATURE) {
