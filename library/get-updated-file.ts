@@ -6,6 +6,14 @@ const walk = require("acorn-walk");
 const { extend } = require('acorn-jsx-walk');
 import { simple as walkSimple, base as baseWalker } from 'acorn-walk';
 const { ESLint } = require('eslint');
+import glob from 'glob';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as util from 'util';
+import DiffMatchPatch from 'diff-match-patch';
+import { Diff } from 'diff-match-patch';
+
+const readFile = util.promisify(fs.readFile);
 
 export function isPlaceholder(line: string): boolean {
     // Check for placeholders starting with //, /*, or {/* followed by rest, ..., or snip
@@ -74,9 +82,31 @@ export function closeWhenPlaceholder(file: string) {
     return lines.join('\n');
 }
 
-export function getUpdatedFile(existingFile: string, codeSnippet: string): string {
-    if (endsWithPlaceholder(codeSnippet))
+export function getUpdatedFile(existingFile: string, codeSnippet: string, filePath: string): string {
+    if (endsWithPlaceholder(codeSnippet)) 
         codeSnippet = closeWhenPlaceholder(codeSnippet);
+
+    const missingPlaceholders = getMissingPlaceholders(existingFile, codeSnippet);
+    if (missingPlaceholders.length > 0) {
+        let modifiedCodeSnippet = codeSnippet;
+        let lineIndexOffset = 0;
+    
+        for (const lineIndex of missingPlaceholders) {
+            const adjustedLineIndex = lineIndex + lineIndexOffset;
+            modifiedCodeSnippet = insertPlaceholder(modifiedCodeSnippet, adjustedLineIndex);
+            lineIndexOffset++;
+        }
+    
+        console.log("Added placeholders: " + modifiedCodeSnippet);
+        codeSnippet = modifiedCodeSnippet;
+    }
+
+    /*const missingPlaceholder = detectMissingPlaceholder(existingFile, codeSnippet);
+    if (missingPlaceholder != null) {
+        codeSnippet = insertPlaceholder(codeSnippet, missingPlaceholder.lineIndex);
+        console.log("Added placeholder: " + codeSnippet);
+    }*/
+
     // Splitting input strings into lines
     const snippetLines: string[] = codeSnippet.split('\n');
     const existingLines: string[] = existingFile.split('\n');
@@ -107,8 +137,8 @@ export function getUpdatedFile(existingFile: string, codeSnippet: string): strin
         return guessdexedSnipLine.guessdex !== -1
         && ( hasChar(guessdexedSnipLine.line) ||
             isUnique(existingLines[guessdexedSnipLine.guessdex], existingLines, snippetLines)
-            || isUniqueClosingCurlyBrace(guessdexedSnipLines.indexOf(guessdexedSnipLine), existingFile, codeSnippet))
-        && !hasSimpleCall(guessdexedSnipLine.line)
+            || isUniqueClosingCurlyBrace(guessdexedSnipLines.indexOf(guessdexedSnipLine), existingFile, codeSnippet) )
+        && ( !hasSimpleCall(guessdexedSnipLine.line) || isUnique(existingLines[guessdexedSnipLine.guessdex], existingLines, snippetLines) )
         && ( !hasSimpleCallWithArrow(guessdexedSnipLine.line) || hasUniqueSimpleCallWithArrow(codeSnippet) )
         && ( !isCommonHookEnd(guessdexedSnipLine.line) || hasUniqueSimpleCallWithArrow(codeSnippet) )
         && guessdexedSnipLine.score >= LINE_MATCH_THRESHOLD;
@@ -133,7 +163,7 @@ export function getUpdatedFile(existingFile: string, codeSnippet: string): strin
                 console.log("Testing " + guessdexedSnipLines[i].line + " with guessdex that indicates it is " + existingLines[guessdex] + " to see if it is unique: " + isUnique(existingLines[guessdex], existingLines, snippetLines) + " and if isUniqueClosingCurlyBrace: " + isUniqueClosingCurlyBrace(i, existingFile, codeSnippet));
                 if (guessdexedSnipLines[i].guessdex !== -1
                     && ( hasChar(guessdexedSnipLines[i].line) || isUnique(existingLines[guessdex], existingLines, snippetLines) || isUniqueClosingCurlyBrace(i, existingFile, codeSnippet))
-                    && !hasSimpleCall(guessdexedSnipLines[i].line)
+                    && ( !hasSimpleCall(guessdexedSnipLines[i].line) || isUnique(existingLines[guessdex], existingLines, snippetLines) )
                     && ( !hasSimpleCallWithArrow(guessdexedSnipLines[i].line) || hasUniqueSimpleCallWithArrow(codeSnippet) )
                     && ( !isCommonHookEnd(guessdexedSnipLines[i].line) || hasUniqueSimpleCallWithArrow(codeSnippet) )
                     && guessdexedSnipLines[i].score >= LINE_MATCH_THRESHOLD) {
@@ -154,7 +184,7 @@ export function getUpdatedFile(existingFile: string, codeSnippet: string): strin
                 console.log("Testing " + guessdexedSnipLines[i].line + " with guessdex that indicates it is " + existingLines[guessdex] + " to see if it is unique: " + isUnique(existingLines[guessdex], existingLines, snippetLines) + " and if isUniqueClosingCurlyBrace: " + isUniqueClosingCurlyBrace(i, existingFile, codeSnippet));
                 if (guessdexedSnipLines[i].guessdex !== -1
                     && ( hasChar(guessdexedSnipLines[i].line) || isUnique(existingLines[guessdex], existingLines, snippetLines) || isUniqueClosingCurlyBrace(i, existingFile, codeSnippet))
-                    && !hasSimpleCall(guessdexedSnipLines[i].line)
+                    && ( !hasSimpleCall(guessdexedSnipLines[i].line) || isUnique(existingLines[guessdex], existingLines, snippetLines) )
                     && ( !hasSimpleCallWithArrow(guessdexedSnipLines[i].line) || hasUniqueSimpleCallWithArrow(codeSnippet) )
                     && ( !isCommonHookEnd(guessdexedSnipLines[i].line) || hasUniqueSimpleCallWithArrow(codeSnippet) )
                     && guessdexedSnipLines[i].score >= LINE_MATCH_THRESHOLD) {
@@ -330,10 +360,1547 @@ export function getUpdatedFile(existingFile: string, codeSnippet: string): strin
             newFile += line + '\n';
         }
     }
+
     newFile = stripPlaceholders(newFile);
+    if (process.env.KEEP_IMPORTS == "true") {
+        newFile = stripUse(newFile);
+        newFile = stripImports(newFile);
+        newFile = ((process.env.CORRECT_IMPORTS == "true" ?
+            correctImports(joinImports(existingFile, codeSnippet), filePath):
+            joinImports(existingFile, codeSnippet))) + '\n' + newFile;
+        newFile = joinUse(existingFile, codeSnippet) + '\n' + newFile;
+    }
+
     console.log("Updated file: " + newFile.trim());
     return newFile.trim(); // Remove trailing newline
 }
+
+function insertPlaceholder(codeSnippet: string, lineIndex: number): string {
+    const lines = codeSnippet.split('\n');
+    const placeholderLine = `// rest of code goes here`;
+
+    lines.splice(lineIndex, 0, placeholderLine);
+    return lines.join('\n');
+}
+
+/*export function insertPlaceholder(codeSnippet: string, index: number): string {
+    const lines = codeSnippet.split('\n');
+    
+    // Ensure the index is within the valid range
+    if (index < 0 || index > lines.length) {
+        console.log("insertPlaceholder index: " + index);
+        throw new Error('Index out of bounds');
+    }
+    
+    // Insert the placeholder at the specified index
+    lines.splice(index, 0, '// rest of code goes here');
+    
+    // Join the lines back into a single string
+    return lines.join('\n');
+}*/
+
+export function getMissingPlaceholders(existingFile: string, codeSnippet: string): number[] {
+    // Initialize the line tracker with the original line indices
+    let lineTracker: number[] = Array.from(Array(codeSnippet.split('\n').length).keys());
+    console.log("lineTracker at start: " + lineTracker);
+    // Helper function to get the original line index from the line tracker
+    function getOriginalIndex(lineIndex: number, lineTracker: number[]): number {
+        return lineTracker.indexOf(lineIndex);
+    }
+
+    // Helper function to update the line tracker after removing a line
+    function updateLineTracker(removedLineIndex: number, lineTracker: number[]): number[] {
+        const originalIndex = getOriginalIndex(removedLineIndex, lineTracker);
+        lineTracker[originalIndex] = -1;
+
+        for (let i = originalIndex + 1; i < lineTracker.length; i++) {
+            if (lineTracker[i] !== -1) {
+                lineTracker[i]--;
+            }
+        }
+        console.log("lineTracker modified: " + lineTracker);
+        return lineTracker;
+    }
+
+    function stripBlankLines(input: string, lineTracker: number[]): string {
+        console.log("Stripping blank lines");
+        const lines = input.split('\n');
+        const nonBlankLines = lines.filter((line, lineIndex) => {
+            if (line.trim().length === 0) {
+                lineTracker = updateLineTracker(lineIndex, lineTracker);
+                return false;
+            }
+            return true;
+        });
+        return nonBlankLines.join('\n');
+    }
+
+    function stripWhitespace(input: string, lineTracker: number[]): string {
+        const lines = input.split('\n');
+        const trimmedLines = lines.map(line => line.trim());
+        return trimmedLines.join('\n');
+    }
+
+    function stripUse(file: string, lineTracker: number[]): string {
+        console.log("Strippping use lines");
+        const lines = file.split('\n');
+        let useDirectiveRemoved = false;
+
+        const strippedLines = lines.filter((line, lineIndex) => {
+            if (!useDirectiveRemoved) {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith("'use ") || trimmedLine.startsWith('"use ')) {
+                    useDirectiveRemoved = true;
+                    console.log("Found line that starts with use");
+                    lineTracker = updateLineTracker(lineIndex, lineTracker);
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (!useDirectiveRemoved)
+            console.log("Didn't find line that starts with use");
+
+        return strippedLines.join('\n');
+    }
+
+    function stripImports(file: string, lineTracker: number[]): string {
+        console.log("Stripping imports");
+        const lines = file.split('\n');
+        let importSectionEnded = false;
+
+        const strippedLines = lines.filter((line, lineIndex) => {
+            // If the import section has already ended, keep the line
+            if (importSectionEnded) {
+                return true;
+            }
+            // Check if the line is an import statement
+            if (line.trim().startsWith('import ')) {
+                lineTracker = updateLineTracker(lineIndex, lineTracker);
+                return false;
+            }
+            // If it's not an import statement and not a blank line, mark the end of the import section
+            importSectionEnded = true;
+            return true;
+        });
+
+        return strippedLines.join('\n');
+    }
+
+    // Pre-process the input strings by stripping use directives, imports, blank lines, and trimming whitespace
+    const processedCodeSnippet = stripWhitespace(stripBlankLines(stripImports(stripUse(codeSnippet, lineTracker), lineTracker), lineTracker), lineTracker);
+    console.log("Backing up lineTracker: " + lineTracker);
+    let lineTrackerBackup = [...lineTracker];
+    const processedExistingFile = stripWhitespace(stripBlankLines(stripImports(stripUse(existingFile, lineTracker), lineTracker), lineTracker), lineTracker);
+    lineTracker = lineTrackerBackup
+
+    // Get the largest matches
+    const matches = getLargestMatches(processedExistingFile, processedCodeSnippet, 6);
+
+    console.log("Matches: ");
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        /*console.log("Match start1: " + match.start1 + " end1: " + match.end1 + " start2: "
+            + match.start2 + " end2: " + match.end2);*/
+        let loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.start2) + 'MATCH_' + i + '_START' + loggedSnippet.slice(match.start2);
+        console.log("Match start relative to pre-processed codeSnippet: " + loggedSnippet);
+        loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.end2) + 'MATCH_' + i + '_END'+ loggedSnippet.slice(match.end2);
+        console.log("Match end relative to pre-processed codeSnippet: " + loggedSnippet);
+    }
+
+    function isClosingCurlyBrace(lineIndex: number, processedCodeSnippet: string): boolean {
+        let lines = processedCodeSnippet.split('\n');
+        return lines[lineIndex].trim() == '}';
+    }
+
+    function getLine(input: string, charIndex: number): number {
+        if (charIndex < 0 || charIndex > input.length) {
+            throw new Error("Character index out of bounds");
+        }
+        
+        const lines = input.split('\n');
+        let currentCharIndex = 0;
+    
+        for (let i = 0; i < lines.length; i++) {
+            currentCharIndex += lines[i].length + 1; // +1 for the newline character
+            if (charIndex < currentCharIndex) {
+                return i;
+            }
+        }
+    
+        return -1; // Should not reach here if charIndex is valid
+    }
+
+    // Filter out matches that consist of a non-unique closing curly brace
+    const filteredMatches = matches.filter(
+        (match) =>
+            isUniqueClosingCurlyBrace(
+                getLine(processedCodeSnippet, match.start2),
+                processedExistingFile,
+                processedCodeSnippet
+            ) || !isClosingCurlyBrace(getLine(processedCodeSnippet, match.start2), processedCodeSnippet)
+    );
+
+    const missingPlaceholders: number[] = [];
+
+    console.log("Filtered matches: " + filteredMatches.length);
+    console.log("Final lineTracker: " + lineTracker);
+
+    // Check for missing placeholders between matches
+    for (let i = 0; i < filteredMatches.length - 2; i++) {
+        const currentMatch = filteredMatches[i];
+        const nextMatch = filteredMatches[i + 1];
+
+        const currentMatchEndLine = getLine(processedCodeSnippet, currentMatch.end2);
+        const nextMatchStartLine = getLine(processedCodeSnippet, nextMatch.start2);
+
+        if (!isPlaceholder(processedCodeSnippet.split('\n')[nextMatchStartLine - 1])) {
+            //const lineDifference = lineDifferenceCodeSnippet - lineDifferenceExistingFile;
+            console.log("Missing placeholder to be inserted at line " + nextMatchStartLine );
+            const lineIndex = getOriginalIndex(nextMatchStartLine, lineTracker);
+            //const lineIndex = getOriginalIndex((nextMatchStartLine - 1), lineTracker);
+            console.log("Missing placeholder to be inserted at line " + lineIndex
+                + " relative to original codeSnippet");
+            console.log("Original codeSnippet: " + codeSnippet);
+            console.log("Processed codeSnippet: " + processedCodeSnippet);
+            missingPlaceholders.push(lineIndex);
+        }
+    }
+
+    
+
+    return missingPlaceholders;
+}
+
+export function getMissingPlaceholdersIntegrated(existingFile: string, codeSnippet: string): number[] {
+    // Function to calculate the number of lines difference after stripping
+    const calculateLineDifference = (original: string, stripped: string): number => {
+        const originalLines = original.split('\n').length;
+        const strippedLines = stripped.split('\n').length;
+        return originalLines - strippedLines;
+    };
+
+
+    function stripBlankLines(input: string): string {
+        const lines = input.split('\n');
+        const nonBlankLines = lines.filter(line => line.trim().length > 0);
+        return nonBlankLines.join('\n');
+    }
+    
+    function stripWhitespace(input: string): string {
+        const lines = input.split('\n');
+        const trimmedLines = lines.map(line => line.trim());
+        return trimmedLines.join('\n');
+    }
+
+    function stripUse(file: string) {
+        const lines = file.split('\n');
+        let useDirectiveRemoved = false;
+    
+        const strippedLines = lines.filter(line => {
+            if (!useDirectiveRemoved) {
+                const trimmedLine = line.trim();
+                if (trimmedLine.startsWith("'use ") || trimmedLine.startsWith('"use ')) {
+                    useDirectiveRemoved = true;
+                    console.log("Found line that starts with use");
+                    return false;
+                }
+            }
+            return true;
+        });
+        if (!useDirectiveRemoved)
+            console.log("Didn't find line that starts with use");
+    
+        return strippedLines.join('\n');
+    }
+    
+    function stripImports(file: string) {
+        const lines = file.split('\n');
+        let importSectionEnded = false;
+    
+        const strippedLines = lines.filter(line => {
+            // If the import section has already ended, keep the line
+            if (importSectionEnded) {
+                return true;
+            }
+            // Check if the line is an import statement
+            if (line.trim().startsWith('import ')) {
+                return false;
+            }
+            // Check if the line is a blank line
+            if (line.trim() === '') {
+                return false;
+            }
+            // If it's not an import statement and not a blank line, mark the end of the import section
+            importSectionEnded = true;
+            return true;
+        });
+    
+        return strippedLines.join('\n');
+    }
+
+    // Pre-process the input strings by stripping use directives, imports, blank lines, and trimming whitespace
+    const processedExistingFile = stripWhitespace(stripBlankLines(stripImports(stripUse(existingFile))));
+    const processedCodeSnippet = stripWhitespace(stripBlankLines(stripImports(stripUse(codeSnippet))));
+
+    // Calculate line differences
+    const lineDifferenceExistingFile = calculateLineDifference(existingFile, processedExistingFile);
+    const lineDifferenceCodeSnippet = calculateLineDifference(codeSnippet, processedCodeSnippet);
+
+    // Get the largest matches
+    const matches = getLargestMatches(processedExistingFile, processedCodeSnippet, 6);
+
+    console.log("Matches: ");
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        /*console.log("Match start1: " + match.start1 + " end1: " + match.end1 + " start2: "
+            + match.start2 + " end2: " + match.end2);*/
+        let loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.start2) + 'MATCH_' + i + '_START' + loggedSnippet.slice(match.start2);
+        console.log("Match start relative to pre-processed codeSnippet: " + loggedSnippet);
+        loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.end2) + 'MATCH_' + i + '_END'+ loggedSnippet.slice(match.end2);
+        console.log("Match end relative to pre-processed codeSnippet: " + loggedSnippet);
+    }
+
+    function isClosingCurlyBrace(lineIndex: number, processedCodeSnippet: string): boolean {
+        let lines = processedCodeSnippet.split('\n');
+        return lines[lineIndex].trim() == '}';
+    }
+    
+    function getLine(input: string, charIndex: number): number {
+        if (charIndex < 0 || charIndex > input.length) {
+            throw new Error("Character index out of bounds");
+        }
+        
+        const lines = input.split('\n');
+        let currentCharIndex = 0;
+    
+        for (let i = 0; i < lines.length; i++) {
+            currentCharIndex += lines[i].length + 1; // +1 for the newline character
+            if (charIndex < currentCharIndex) {
+                return i;
+            }
+        }
+    
+        return -1; // Should not reach here if charIndex is valid
+    }
+
+    // Filter out matches that consist of a non-unique closing curly brace
+    const filteredMatches = matches.filter(
+        (match) =>
+            isUniqueClosingCurlyBrace(
+                getLine(processedCodeSnippet, match.start2),
+                processedExistingFile,
+                processedCodeSnippet
+            ) || !isClosingCurlyBrace(getLine(processedCodeSnippet, match.start2), processedCodeSnippet)
+    );
+
+    const missingPlaceholders: number[] = [];
+    
+    console.log("Filtered matches: " + filteredMatches.length);
+
+    // Check for missing placeholders between matches
+    for (let i = 0; i < filteredMatches.length - 2; i++) {
+        const currentMatch = filteredMatches[i];
+        const nextMatch = filteredMatches[i + 1];
+
+        const currentMatchEndLine = getLine(processedCodeSnippet, currentMatch.end2);
+        const nextMatchStartLine = getLine(processedCodeSnippet, nextMatch.start2);
+
+        if (!isPlaceholder(processedCodeSnippet.split('\n')[nextMatchStartLine - 1])) {
+            //const lineDifference = lineDifferenceCodeSnippet - lineDifferenceExistingFile;
+            console.log("Missing placeholder to be inserted at line " + nextMatchStartLine );
+            const lineIndex = nextMatchStartLine + lineDifferenceCodeSnippet;
+            console.log("Missing placeholder to be inserted at line " + lineIndex
+            + " relative to original codeSnippet");
+            console.log("Original codeSnippet: " + codeSnippet);
+            console.log("Processed codeSnippet: " + processedCodeSnippet);
+            missingPlaceholders.push(lineIndex);
+        }
+    }
+
+    return missingPlaceholders;
+}
+
+export function getMissingPlaceholdersLineDiffAttempt(existingFile: string, codeSnippet: string): number[] {
+    // Pre-process the input strings by stripping use directives, imports, blank lines, and trimming whitespace
+    const processedExistingFile = stripWhitespace(stripBlankLines(stripImports(stripUse(existingFile))));
+    const processedCodeSnippet = preProcessCodeSnippet(codeSnippet);
+
+    // Get the largest matches
+    const matches = getLargestMatches(processedExistingFile, processedCodeSnippet.code, 6);
+
+    console.log("Matches: ");
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        /*console.log("Match start1: " + match.start1 + " end1: " + match.end1 + " start2: "
+            + match.start2 + " end2: " + match.end2);*/
+        let loggedSnippet = processedCodeSnippet.lines.join('\n');
+        loggedSnippet = loggedSnippet.slice(0, match.start2) + 'MATCH_' + i + '_START' + loggedSnippet.slice(match.start2);
+        console.log("Match start relative to pre-processed codeSnippet: " + loggedSnippet);
+        loggedSnippet = processedCodeSnippet.lines.join('\n');
+        loggedSnippet = loggedSnippet.slice(0, match.end2) + 'MATCH_' + i + '_END'+ loggedSnippet.slice(match.end2);
+        console.log("Match end relative to pre-processed codeSnippet: " + loggedSnippet);
+    }
+
+    // Filter out matches that consist of a non-unique closing curly brace
+    const filteredMatches = matches.filter(
+        (match) =>
+            isUniqueClosingCurlyBrace(
+                getLine(processedCodeSnippet.code, match.start2),
+                processedExistingFile,
+                processedCodeSnippet.code
+            ) || !isClosingCurlyBrace(getLine(processedCodeSnippet.code, match.start2), processedCodeSnippet.code)
+    );
+
+    const missingPlaceholders: number[] = [];
+    console.log("Filtered matches: " + filteredMatches.length);
+
+    // Check for missing placeholders between matches
+    for (let i = 0; i < filteredMatches.length - 1; i++) {
+        const currentMatch = filteredMatches[i];
+        const nextMatch = filteredMatches[i + 1];
+
+        const currentMatchEndLine = getLine(processedCodeSnippet.code, currentMatch.end2);
+        const nextMatchStartLine = getLine(processedCodeSnippet.code, nextMatch.start2);
+
+        if (!isPlaceholder(processedCodeSnippet.lines[nextMatchStartLine - 1])) {
+            console.log("Missing placeholder to be inserted at line " + nextMatchStartLine );
+            const lineIndex = processedCodeSnippet.lineIndices[nextMatchStartLine - 1];
+            console.log("Missing placeholder to be inserted at line " + lineIndex
+            + " relative to original codeSnippet");
+            console.log("Original codeSnippet: " + codeSnippet);
+            console.log("Processed codeSnippet: " + processedCodeSnippet.lines.join('\n'));
+            missingPlaceholders.push(lineIndex);
+        }
+    }
+
+    return missingPlaceholders;
+}
+
+function preProcessCodeSnippet(codeSnippet: string) {
+    const lines = codeSnippet.split('\n');
+    const lineIndices: number[] = [];
+    let currentIndex = 0;
+
+    for (const line of lines) {
+        lineIndices.push(currentIndex);
+        currentIndex += line.length + 1; // Add 1 for the newline character
+    }
+
+    const processedLines = lines.map((line) => stripWhitespace(stripBlankLines(stripImports(stripUse(line)))));
+
+    return {
+        lines: processedLines,
+        lineIndices,
+        code: processedLines.join('\n'),
+    };
+}
+
+function isClosingCurlyBrace(lineIndex: number, processedCodeSnippet: string): boolean {
+    const lines = processedCodeSnippet.split('\n');
+    return lines[lineIndex].trim() === '}';
+}
+
+export function getMissingPlaceholdersLineDiffProblem(existingFile: string, codeSnippet: string): number[] {
+    // Function to calculate the number of lines difference after stripping
+    const calculateLineDifference = (original: string, stripped: string): number => {
+        const originalLines = original.split('\n').length;
+        const strippedLines = stripped.split('\n').length;
+        return originalLines - strippedLines;
+    };
+
+    // Pre-process the input strings by stripping use directives, imports, blank lines, and trimming whitespace
+    const processedExistingFile = stripWhitespace(stripBlankLines(stripImports(stripUse(existingFile))));
+    const processedCodeSnippet = stripWhitespace(stripBlankLines(stripImports(stripUse(codeSnippet))));
+
+    // Calculate line differences
+    const lineDifferenceExistingFile = calculateLineDifference(existingFile, processedExistingFile);
+    const lineDifferenceCodeSnippet = calculateLineDifference(codeSnippet, processedCodeSnippet);
+
+    // Get the largest matches
+    const matches = getLargestMatches(processedExistingFile, processedCodeSnippet, 6);
+
+    console.log("Matches: ");
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        /*console.log("Match start1: " + match.start1 + " end1: " + match.end1 + " start2: "
+            + match.start2 + " end2: " + match.end2);*/
+        let loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.start2) + 'MATCH_' + i + '_START' + loggedSnippet.slice(match.start2);
+        console.log("Match start relative to pre-processed codeSnippet: " + loggedSnippet);
+        loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.end2) + 'MATCH_' + i + '_END'+ loggedSnippet.slice(match.end2);
+        console.log("Match end relative to pre-processed codeSnippet: " + loggedSnippet);
+    }
+
+    function isClosingCurlyBrace(lineIndex: number, processedCodeSnippet: string): boolean {
+        let lines = processedCodeSnippet.split('\n');
+        return lines[lineIndex].trim() == '}';
+    }
+
+    // Filter out matches that consist of a non-unique closing curly brace
+    const filteredMatches = matches.filter(
+        (match) =>
+            isUniqueClosingCurlyBrace(
+                getLine(processedCodeSnippet, match.start2),
+                processedExistingFile,
+                processedCodeSnippet
+            ) || !isClosingCurlyBrace(getLine(processedCodeSnippet, match.start2), processedCodeSnippet)
+    );
+
+    const missingPlaceholders: number[] = [];
+    
+    console.log("Filtered matches: " + filteredMatches.length);
+
+    // Check for missing placeholders between matches
+    for (let i = 0; i < filteredMatches.length - 2; i++) {
+        const currentMatch = filteredMatches[i];
+        const nextMatch = filteredMatches[i + 1];
+
+        const currentMatchEndLine = getLine(processedCodeSnippet, currentMatch.end2);
+        const nextMatchStartLine = getLine(processedCodeSnippet, nextMatch.start2);
+
+        if (!isPlaceholder(processedCodeSnippet.split('\n')[nextMatchStartLine - 1])) {
+            //const lineDifference = lineDifferenceCodeSnippet - lineDifferenceExistingFile;
+            console.log("Missing placeholder to be inserted at line " + nextMatchStartLine );
+            const lineIndex = nextMatchStartLine + lineDifferenceCodeSnippet;
+            console.log("Missing placeholder to be inserted at line " + lineIndex
+            + " relative to original codeSnippet");
+            console.log("Original codeSnippet: " + codeSnippet);
+            console.log("Processed codeSnippet: " + processedCodeSnippet);
+            missingPlaceholders.push(lineIndex);
+        }
+    }
+
+    return missingPlaceholders;
+}
+
+export function detectMissingPlaceholder(existingFile: string, codeSnippet: string): { lineIndex: number, matchContent: string } | null {
+    // Function to calculate the number of lines difference after stripping
+    const calculateLineDifference = (original: string, stripped: string): number => {
+        const originalLines = original.split('\n').length;
+        const strippedLines = stripped.split('\n').length;
+        return originalLines - strippedLines;
+    };
+
+    // Pre-process the input strings by stripping use directives, imports, blank lines, and trimming whitespace
+    const processedExistingFile = stripWhitespace(stripBlankLines(stripImports(stripUse(existingFile))));
+    const processedCodeSnippet = stripWhitespace(stripBlankLines(stripImports(stripUse(codeSnippet))));
+
+
+    // Calculate line differences
+    const lineDifferenceExistingFile = calculateLineDifference(existingFile, processedExistingFile);
+    const lineDifferenceCodeSnippet = calculateLineDifference(codeSnippet, processedCodeSnippet);
+
+    // Get the largest matches
+    const matches = getLargestMatches(processedExistingFile, processedCodeSnippet, 20);
+
+    console.log("Matches: ")
+    for (let i = 0; i < matches.length; i++) {
+        const match = matches[i];
+        /*console.log("Match start1: " + match.start1 + " end1: " + match.end1 + " start2: "
+            + match.start2 + " end2: " + match.end2);*/
+        let loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.start2) + 'START' + i + loggedSnippet.slice(match.start2);
+        console.log("Match start relative to pre-processed codeSnippet: " + loggedSnippet);
+        loggedSnippet = processedCodeSnippet;
+        loggedSnippet = loggedSnippet.slice(0, match.end2) + 'END' + i + loggedSnippet.slice(match.end2);
+        console.log("Match end relative to pre-processed codeSnippet: " + loggedSnippet);
+    }
+
+    // Filter out matches that are only empty lines
+    const nonEmptyLineMatches = matches.filter(match => {
+        const lines = processedExistingFile.substring(match.start1, match.end1).split('\n');
+        return lines.some(line => line.trim().length > 0);
+    });
+
+    // Filter out matches that consist of a closing curly brace that is not unique
+    const validMatches = nonEmptyLineMatches.filter(match => {
+        const snippetLines = processedCodeSnippet.substring(match.start2, match.end2).split('\n');
+        return !snippetLines.some((line, index) => line.trim() === '}' &&
+            !isUniqueClosingCurlyBrace(getLine(processedCodeSnippet, match.start2) + index,
+            processedExistingFile, processedCodeSnippet));
+    });
+
+    // Check for missing placeholders between matches
+    for (let i = 0; i < validMatches.length; i++) {
+        for (let j = 0; j < validMatches.length; j++) {
+            if (i !== j) {
+                const match1 = validMatches[i];
+                const match2 = validMatches[j];
+                
+                // Determine the range between match1 and match2
+                const rangeStart = Math.min(match1.end2, match2.end2);
+                const rangeEnd = Math.max(match1.start2, match2.start2);
+                
+                // Get the lines between the two matches in the codeSnippet
+                const betweenLines = processedCodeSnippet.substring(rangeStart, rangeEnd).split('\n');
+
+                // Check if there is a placeholder between the two matches
+                const hasPlaceholder = betweenLines.some(line => isPlaceholder(line.trim()));
+                
+                if (!hasPlaceholder) {
+                    // Calculate the line index where the placeholder should be
+                    const snippetLines = processedCodeSnippet.split('\n');
+                    const startLineIndex = snippetLines.slice(0, rangeStart).length - 1;
+                    const originalLineIndex = startLineIndex + lineDifferenceCodeSnippet;
+                    return { lineIndex: originalLineIndex, matchContent: processedCodeSnippet.substring(match1.start2, match1.end2) };
+                }
+            }
+        }
+    }
+
+    // If no missing placeholder is detected, return null
+    return null;
+}
+
+export function stripBlankLines(input: string): string {
+    const lines = input.split('\n');
+    const nonBlankLines = lines.filter(line => line.trim().length > 0);
+    return nonBlankLines.join('\n');
+}
+
+export function stripWhitespace(input: string): string {
+    const lines = input.split('\n');
+    const trimmedLines = lines.map(line => line.trim());
+    return trimmedLines.join('\n');
+}
+
+export function getLine(input: string, charIndex: number): number {
+    if (charIndex < 0 || charIndex > input.length) {
+        throw new Error("Character index out of bounds");
+    }
+    
+    const lines = input.split('\n');
+    let currentCharIndex = 0;
+
+    for (let i = 0; i < lines.length; i++) {
+        currentCharIndex += lines[i].length + 1; // +1 for the newline character
+        if (charIndex < currentCharIndex) {
+            return i;
+        }
+    }
+
+    return -1; // Should not reach here if charIndex is valid
+}
+
+function getRawLargestMatches(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number }[] {
+    const dmp = new DiffMatchPatch();
+    const diffs: Diff[] = dmp.diff_main(text1, text2);
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number }[] = [];
+
+    let start1 = 0;
+    let start2 = 0;
+    for (const diff of diffs) {
+        if (diff[0] === 0) { // DIFF_EQUAL
+            const matchLength = diff[1].length;
+            matches.push({
+                start1: start1,
+                end1: start1 + matchLength,
+                start2: start2,
+                end2: start2 + matchLength,
+                length: matchLength,
+            });
+        }
+        // Update the start positions for the next diff segment
+        if (diff[0] !== 1) { // Not DIFF_INSERT
+            start1 += diff[1].length;
+        }
+        if (diff[0] !== -1) { // Not DIFF_DELETE
+            start2 += diff[1].length;
+        }
+    }
+
+    // Sort matches by length in descending order and return the top N matches
+    matches.sort((a, b) => (b.end1 - b.start1) - (a.end1 - a.start1));
+    const largestMatches = matches.slice(0, matchNumber);
+
+    return largestMatches;
+}
+
+export function getLargestMatches(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number, length: number, originalIndex: number }[] {
+    const dmp = new DiffMatchPatch();
+    const diffs: Diff[] = dmp.diff_main(text1, text2);
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number}[] = [];
+    const emptyMatches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number}[] = [];
+    const newlineChar = '\n';
+
+    let start1 = 0;
+    let start2 = 0;
+    let originalIndex = 0;
+    for (const diff of diffs) {
+        if (diff[0] === 0) { // DIFF_EQUAL
+            const matchLength = diff[1].length;
+            let adjustedStart1 = start1;
+            let adjustedEnd1 = start1 + matchLength;
+            let adjustedStart2 = start2;
+            let adjustedEnd2 = start2 + matchLength;
+             // Check if the match already spans complete lines
+            const isStart1Complete = text1[adjustedStart1] === newlineChar || adjustedStart1 === 0;
+            const isEnd1Complete = text1[adjustedEnd1 - 1] === newlineChar || adjustedEnd1 === text1.length;
+            const isStart2Complete = text2[adjustedStart2] === newlineChar || adjustedStart2 === 0;
+            const isEnd2Complete = text2[adjustedEnd2 - 1] === newlineChar || adjustedEnd2 === text2.length;
+
+            if (!(isStart1Complete && isEnd1Complete && isStart2Complete && isEnd2Complete)) {
+                // Adjust start and end positions if the match does not span complete lines
+                adjustedStart1 = adjustToLineBreak(text1, adjustedStart1, true);
+                adjustedEnd1 = adjustToLineBreak(text1, adjustedEnd1, false);
+                adjustedStart2 = adjustToLineBreak(text2, adjustedStart2, true);
+                adjustedEnd2 = adjustToLineBreak(text2, adjustedEnd2, false);
+            }
+
+            /*const matchLength = diff[1].length;
+            const adjustedStart1 = adjustToLineBreak(text1, start1, true);
+            const adjustedEnd1 = adjustToLineBreak(text1, start1 + matchLength, false);
+            const adjustedStart2 = adjustToLineBreak(text2, start2, true);
+            const adjustedEnd2 = adjustToLineBreak(text2, start2 + matchLength, false);*/
+
+            /*matches.push({
+                start1: adjustedStart1,
+                end1: adjustedEnd1,
+                start2: adjustedStart2,
+                end2: adjustedEnd2,
+                length: adjustedEnd1 - adjustedStart1,
+            });*/
+
+            const adjustedMatch1 = text1.substring(adjustedStart1, adjustedEnd1);
+            const adjustedMatch2 = text2.substring(adjustedStart2, adjustedEnd2);
+            /*if (text1.includes(adjustedMatch2) && text2.includes(adjustedMatch1)) {*/
+            if (adjustedEnd1 !== adjustedStart1 && adjustedEnd2 !== adjustedStart2 && text1.includes(adjustedMatch2) && text2.includes(adjustedMatch1)) {
+                matches.push({
+                    start1: adjustedStart1,
+                    end1: adjustedEnd1,
+                    start2: adjustedStart2,
+                    end2: adjustedEnd2,
+                    length: adjustedEnd1 - adjustedStart1,
+                    originalIndex: originalIndex++,
+                });
+            }
+        }
+        // Update the start positions for the next diff segment
+        if (diff[0] !== 1) { // Not DIFF_INSERT
+            start1 += diff[1].length;
+        }
+        if (diff[0] !== -1) { // Not DIFF_DELETE
+            start2 += diff[1].length;
+        }
+    }
+    
+
+    // Sort matches by length in descending order and return the top N matches
+    matches.sort((a, b) => b.length - a.length);
+    const largestMatches = matches.slice(0, matchNumber);
+
+    // If largest match spans too few lines, return no matches
+    if ( (getLine(text2, largestMatches[0].end2) - getLine(text2, largestMatches[0].start2) ) < 4)
+        return emptyMatches;
+
+    // Sort matches by position
+    largestMatches.sort((a, b) => a.originalIndex - b.originalIndex);
+
+    return largestMatches;
+}
+
+function adjustToLineBreak(text: string, index: number, isStart: boolean): number {
+    const newlineChar = '\n';
+    let adjustedIndex = index;
+
+    if (isStart) {
+        // Case 1: Move the start position to the beginning of the line
+        while (adjustedIndex > 0 && text[adjustedIndex - 1] !== newlineChar) {
+            adjustedIndex--;
+        }
+    } else {
+        // Case 2: Move the end position to the end of the line above the current line
+        let prevNewline = -1;
+        for (let i = adjustedIndex - 1; i >= 0; i--) {
+            if (text[i] === newlineChar) {
+                prevNewline = i;
+                break;
+            }
+        }
+        adjustedIndex = prevNewline === -1 ? 0 : prevNewline + 1;
+    }
+
+    return adjustedIndex;
+}
+
+function adjustToLineBreakSameLine(text: string, index: number, isStart: boolean): number {
+    const newlineChar = '\n';
+    let adjustedIndex = index;
+
+    if (isStart) {
+        // Case 1: Move the start position to the beginning of the line
+        while (adjustedIndex > 0 && text[adjustedIndex - 1] !== newlineChar) {
+            adjustedIndex--;
+        }
+    } else {
+        // Case 2: Move the end position to the end of the line
+        while (adjustedIndex < text.length && text[adjustedIndex] !== newlineChar) {
+            adjustedIndex++;
+        }
+    }
+
+    return adjustedIndex;
+}
+
+function getLargestMatchesContainedBy(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number }[] {
+    const dmp = new DiffMatchPatch();
+    const diffs: Diff[] = dmp.diff_main(text1, text2);
+
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number }[] = [];
+    
+    let start1 = 0;
+    let start2 = 0;
+
+    for (const diff of diffs) {
+        if (diff[0] === 0) { // DIFF_EQUAL
+            const matchLength = diff[1].length;
+            matches.push({
+                start1: start1,
+                end1: start1 + matchLength,
+                start2: start2,
+                end2: start2 + matchLength,
+                length: matchLength,
+            });
+        }
+
+        // Update the start positions for the next diff segment
+        if (diff[0] !== 1) { // Not DIFF_INSERT
+            start1 += diff[1].length;
+        }
+        if (diff[0] !== -1) { // Not DIFF_DELETE
+            start2 += diff[1].length;
+        }
+    }
+
+    const adjustToLineBoundaries = (text: string, start: number, end: number) => {
+        let adjustedStart = start;
+        let adjustedEnd = end;
+
+        // Determine the start and end lines
+        const startLine = getLine(text, start);
+        const endLine = getLine(text, end);
+
+        // Case 1: Adjust the start to the beginning of the line if it's a partial match
+        if (start > 0 && text[start - 1] !== '\n') {
+            const lineStartIndex = text.lastIndexOf('\n', start - 1) + 1;
+            adjustedStart = lineStartIndex;
+        }
+
+        // Case 2: Adjust the end to the end of the line above if it's a partial match
+        if (end < text.length && text[end] !== '\n') {
+            const lineEndIndex = text.indexOf('\n', end);
+            adjustedEnd = lineEndIndex === -1 ? text.length : lineEndIndex;
+        }
+
+        return { adjustedStart, adjustedEnd };
+    };
+
+    const containedByMatch = (str: string, matches: { start1: number; end1: number; start2: number; end2: number }[], currentMatch: { start1: number; end1: number; start2: number; end2: number }) => {
+        for (const match of matches) {
+            if (match === currentMatch) continue;
+            const matchText1 = text1.slice(match.start1, match.end1);
+            const matchText2 = text2.slice(match.start2, match.end2);
+            if (matchText1.includes(str) || matchText2.includes(str)) {
+                const startLine = getLine(text1, match.start1);
+                const strStartLine = getLine(text1, text1.indexOf(str, match.start1));
+                if (startLine === strStartLine) return true;
+            }
+        }
+        return false;
+    };
+
+    const adjustedMatches = matches.map(match => {
+        const { adjustedStart: start1, adjustedEnd: end1 } = adjustToLineBoundaries(text1, match.start1, match.end1);
+        const { adjustedStart: start2, adjustedEnd: end2 } = adjustToLineBoundaries(text2, match.start2, match.end2);
+
+        // Ensure that adjusting doesn't make the match contain parts not in other matches
+        if (containedByMatch(text1.slice(start1, end1), matches, match) || containedByMatch(text2.slice(start2, end2), matches, match)) {
+            return match;
+        }
+
+        return { start1, end1, start2, end2 };
+    });
+
+    // Sort matches by length in descending order and return the top N matches
+    adjustedMatches.sort((a, b) => (b.end1 - b.start1) - (a.end1 - a.start1));
+    const largestMatches = adjustedMatches.slice(0, matchNumber);
+    
+    return largestMatches;
+}
+
+export function getLargestMatchesDefaultProblem(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number }[] {
+    const dmp = new DiffMatchPatch();
+    const diffs: Diff[] = dmp.diff_main(text1, text2);
+
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number }[] = [];
+    
+    let start1 = 0;
+    let start2 = 0;
+
+    for (const diff of diffs) {
+        if (diff[0] === 0) { // DIFF_EQUAL
+            const matchLength = diff[1].length;
+            matches.push({
+                start1: start1,
+                end1: start1 + matchLength,
+                start2: start2,
+                end2: start2 + matchLength,
+                length: matchLength,
+            });
+        }
+
+        // Update the start positions for the next diff segment
+        if (diff[0] !== 1) { // Not DIFF_INSERT
+            start1 += diff[1].length;
+        }
+        if (diff[0] !== -1) { // Not DIFF_DELETE
+            start2 += diff[1].length;
+        }
+    }
+
+    // Adjust matches to start and end at line boundaries
+    const adjustToLineBoundaries = (text: string, start: number, end: number) => {
+        const lines = text.split('\n');
+        let adjustedStart = start;
+        let adjustedEnd = end;
+
+        let charCount = 0;
+        for (const line of lines) {
+            const lineLength = line.length + 1; // +1 for newline character
+            if (charCount <= start && start < charCount + lineLength) {
+                adjustedStart = charCount;
+            }
+            if (charCount <= end && end <= charCount + lineLength) {
+                adjustedEnd = charCount + lineLength - 1;
+                break;
+            }
+            charCount += lineLength;
+        }
+        return { adjustedStart, adjustedEnd };
+    };
+
+    const adjustedMatches = matches.map(match => {
+        const { adjustedStart: start1, adjustedEnd: end1 } = adjustToLineBoundaries(text1, match.start1, match.end1);
+        const { adjustedStart: start2, adjustedEnd: end2 } = adjustToLineBoundaries(text2, match.start2, match.end2);
+        return { start1, end1, start2, end2 };
+    });
+
+    // Sort matches by length in descending order and return the top N matches
+    adjustedMatches.sort((a, b) => (b.end1 - b.start1) - (a.end1 - a.start1));
+    const largestMatches = adjustedMatches.slice(0, matchNumber);
+    
+    return largestMatches;
+}
+
+export function getLargestNoPartialAttempt(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number }[] {
+    const dmp = new DiffMatchPatch();
+    const diffs: Diff[] = dmp.diff_main(text1, text2);
+
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number }[] = [];
+    
+    let start1 = 0;
+    let start2 = 0;
+
+    for (const diff of diffs) {
+        if (diff[0] === 0) { // DIFF_EQUAL
+            const matchLength = diff[1].length;
+            matches.push({
+                start1: start1,
+                end1: start1 + matchLength,
+                start2: start2,
+                end2: start2 + matchLength,
+                length: matchLength,
+            });
+        }
+
+        // Update the start positions for the next diff segment
+        if (diff[0] !== 1) { // Not DIFF_INSERT
+            start1 += diff[1].length;
+        }
+        if (diff[0] !== -1) { // Not DIFF_DELETE
+            start2 += diff[1].length;
+        }
+    }
+
+    // Adjust matches to start and end at line boundaries
+    const adjustToLineBoundaries = (text: string, start: number, end: number) => {
+        const lines = text.split('\n');
+        let adjustedStart = start;
+        let adjustedEnd = end;
+        let startLine = -1;
+        let endLine = -1;
+
+        let charCount = 0;
+        for (let i = 0; i < lines.length; i++) {
+            const lineLength = lines[i].length + 1; // +1 for newline character
+            if (charCount <= start && start < charCount + lineLength) {
+                adjustedStart = charCount;
+                startLine = i;
+            }
+            if (charCount < end && end <= charCount + lineLength) {
+                adjustedEnd = charCount + lineLength - 1;
+                endLine = i;
+                break;
+            }
+            charCount += lineLength;
+        }
+
+        // Ignore matches that start and end on the same line but do not span the entire line
+        if (startLine === endLine && (adjustedStart !== start || adjustedEnd !== end)) {
+            return null;
+        }
+
+        return { adjustedStart, adjustedEnd };
+    };
+
+    const adjustedMatches = matches.map(match => {
+        const adjusted1 = adjustToLineBoundaries(text1, match.start1, match.end1);
+        const adjusted2 = adjustToLineBoundaries(text2, match.start2, match.end2);
+        if (adjusted1 && adjusted2) {
+            return { 
+                start1: adjusted1.adjustedStart, 
+                end1: adjusted1.adjustedEnd, 
+                start2: adjusted2.adjustedStart, 
+                end2: adjusted2.adjustedEnd 
+            };
+        }
+        return null;
+    }).filter(match => match !== null) as { start1: number; end1: number; start2: number; end2: number }[];
+
+    // Sort matches by length in descending order and return the top N matches
+    adjustedMatches.sort((a, b) => (b.end1 - b.start1) - (a.end1 - a.start1));
+    const largestMatches = adjustedMatches.slice(0, matchNumber);
+    
+    return largestMatches;
+}
+
+export function getLargestMatchesAnywhere(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number }[] {
+    const dmp = new DiffMatchPatch();
+    const diffs: Diff[] = dmp.diff_main(text1, text2);
+
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number }[] = [];
+    
+    let start1 = 0;
+    let start2 = 0;
+
+    for (const diff of diffs) {
+        if (diff[0] === 0) { // DIFF_EQUAL
+            const matchLength = diff[1].length;
+            matches.push({
+                start1: start1,
+                end1: start1 + matchLength,
+                start2: start2,
+                end2: start2 + matchLength,
+                length: matchLength,
+            });
+        }
+
+        // Update the start positions for the next diff segment
+        if (diff[0] !== 1) { // Not DIFF_INSERT
+            start1 += diff[1].length;
+        }
+        if (diff[0] !== -1) { // Not DIFF_DELETE
+            start2 += diff[1].length;
+        }
+    }
+
+    // Sort matches by length in descending order and return the top N matches
+    matches.sort((a, b) => b.length - a.length);
+    const largestMatches = matches.slice(0, matchNumber);
+    
+    return largestMatches.map(match => ({
+        start1: match.start1,
+        end1: match.end1,
+        start2: match.start2,
+        end2: match.end2
+    }));
+}
+
+export function getLargestMatch(text1: string, text2: string): { start1: number; end1: number; start2: number; end2: number } | null {
+    const dmp = new DiffMatchPatch();
+    const diffs: Diff[] = dmp.diff_main(text1, text2);
+    
+    let largestMatch = { start1: 0, end1: 0, start2: 0, end2: 0, length: 0 };
+    
+    let start1 = 0;
+    let start2 = 0;
+
+    for (const diff of diffs) {
+        if (diff[0] === 0) { // DIFF_EQUAL
+            const matchLength = diff[1].length;
+            if (matchLength > largestMatch.length) {
+                largestMatch = {
+                    start1: start1,
+                    end1: start1 + matchLength,
+                    start2: start2,
+                    end2: start2 + matchLength,
+                    length: matchLength,
+                };
+            }
+        }
+
+        // Update the start positions for the next diff segment
+        if (diff[0] !== 1) { // Not DIFF_INSERT
+            start1 += diff[1].length;
+        }
+        if (diff[0] !== -1) { // Not DIFF_DELETE
+            start2 += diff[1].length;
+        }
+    }
+    
+    return largestMatch.length > 0 ? { start1: largestMatch.start1, end1: largestMatch.end1, start2: largestMatch.start2, end2: largestMatch.end2 } : null;
+}
+
+
+/* Code test correctImports:
+const testSnippet = `import Script from 'next/script';
+import Header from './components/header';
+import Footer from './components/footer';
+import useState from 'react';
+import useEffect from 'react';
+import setLocalStorage from './components/utils.mjs';`;
+correctImports(testSnippet, "src/app/page.jsx");
+Correct code that should be output:
+import Script from 'next/script';
+import Header from './components/header';
+import Footer from './components/footer';
+import { useState } from 'react';
+import { useEffect } from 'react';
+import { setLocalStorage } from './components/utils.mjs';
+
+*/
+export function correctImports(codeSnippet: string, filePathInProject: string): string {
+    const newAST = getAST(codeSnippet);
+    const projectPath = process.env.PROJECT_PATH || '';
+    const importStatements: string[] = [];
+    const importDeclarations: any[] = [];
+
+    // Collect import declarations
+    walk.simple(newAST, {
+        ImportDeclaration(node: any) {
+            importDeclarations.push(node);
+        }
+    });
+    for (const node of importDeclarations) {
+        const importPath = node.source.value;
+        //const absoluteImportPath = path.resolve(path.dirname(filePathInProject), importPath);
+        let newImportStatement = '';
+
+        if (importPath.startsWith('.') && existsSyncWithExtensions(getAbsoluteImportPath(process.env.PROJECT_PATH as string,
+                filePathInProject, importPath))) {
+                console.log("Trying the . relative case: ");
+                const absoluteImportPath = getAbsoluteImportPath(process.env.PROJECT_PATH as string,
+                filePathInProject, importPath);
+                console.log("absoluteImportPath: " + absoluteImportPath);
+                const fileContent = readFileWithExtensions(absoluteImportPath);
+                const fileAST = getAST(fileContent);
+                const namedExports = getNamedExportsRecursively(absoluteImportPath, fileAST);
+                console.log("namedExports from " + absoluteImportPath + ": " + namedExports.join('\n'));
+
+                node.specifiers.forEach((specifier: any) => {
+                    if (specifier.type === 'ImportDefaultSpecifier') {
+                        const importName = specifier.local.name;
+                        if (namedExports.includes(importName)) {
+                            newImportStatement = `import { ${importName} } from '${importPath}';`;
+                            console.log("Adding named import statement: " + newImportStatement);
+                        } else {
+                            newImportStatement = `import ${importName} from '${importPath}';`;
+                            console.log("Adding default import statement: " + newImportStatement);
+                        }
+                        importStatements.push(newImportStatement);
+                    } else {
+                        newImportStatement = generateOriginalImport(node);
+                        console.log("Adding original import statement: " + newImportStatement);
+                        importStatements.push(generateOriginalImport(node));
+                    }
+                });
+            }
+            if (importPath.startsWith('..') && existsSyncWithExtensions(getAbsoluteImportPath(process.env.PROJECT_PATH as string,
+                filePathInProject, importPath.slice(1)))) {
+                console.log("Trying the .. relative case: ");
+                const absoluteImportPath = getAbsoluteImportPath(process.env.PROJECT_PATH as string,
+                    filePathInProject, importPath.slice(1));
+                console.log("absoluteImportPath: " + absoluteImportPath);
+                const fileContent = readFileWithExtensions(absoluteImportPath);
+                const fileAST = getAST(fileContent);
+                const namedExports = getNamedExportsRecursively(absoluteImportPath, fileAST);
+                console.log("namedExports from " + absoluteImportPath + ": " + namedExports.join('\n'));
+
+                node.specifiers.forEach((specifier: any) => {
+                    if (specifier.type === 'ImportDefaultSpecifier') {
+                        const importName = specifier.local.name;
+                        if (namedExports.includes(importName)) {
+                            newImportStatement = `import { ${importName} } from '${importPath.slice(1)}';`;
+                            console.log("Adding named import statement: " + newImportStatement);
+                        } else {
+                            newImportStatement = `import ${importName} from '${importPath.slice(1)}';`;
+                            console.log("Adding default import statement: " + newImportStatement);
+                        }
+                        importStatements.push(newImportStatement);
+                    } else {
+                        newImportStatement = generateOriginalImport(node);
+                        console.log("Adding original import statement: " + newImportStatement);
+                        importStatements.push(generateOriginalImport(node));
+                    }
+                });
+            }
+            if (!importPath.startsWith('.') && !path.isAbsolute(importPath)) { // indicates it is a node module
+                console.log("Trying the node module case: ");
+                const modulePath = path.join(projectPath, 'node_modules', importPath);
+                const resolvedModulePaths = resolveModulePaths(modulePath);
+                console.log("resolvedModulePaths: " + resolvedModulePaths.join('\n'));
+                for (const resolvedModulePath of resolvedModulePaths) {
+                    const fileContent = readFileWithExtensions(resolvedModulePath);
+                    const fileAST = getAST(fileContent);
+                    /*logAST(fileAST);
+                    process.exit(0);*/
+                    const namedExports = getNamedExportsRecursively(resolvedModulePath, fileAST);
+                    console.log("namedExports from " + resolvedModulePath + ": " + namedExports.join('\n'));
+
+                    node.specifiers.forEach((specifier: any) => {
+                        if (specifier.type === 'ImportDefaultSpecifier') {
+                            const importName = specifier.local.name;
+                            if (namedExports.includes(importName)) {
+                                newImportStatement = `import { ${importName} } from '${importPath}';`;
+                                console.log("Adding named import statement: " + newImportStatement);
+                            } else {
+                                newImportStatement = `import ${importName} from '${importPath}';`;
+                                console.log("Adding default import statement: " + newImportStatement);
+                            }
+                            importStatements.push(newImportStatement);
+                        } else {
+                            newImportStatement = generateOriginalImport(node);
+                            console.log("Adding original import statement: " + newImportStatement);
+                            importStatements.push(generateOriginalImport(node));
+                        }
+                    });
+                }
+            }
+            if (newImportStatement == '') {
+                newImportStatement = generateOriginalImport(node)
+                console.log("None of the three common cases were successful: relative, .. relative, and module,");
+                console.log("so adding original import statement: " + newImportStatement);
+                importStatements.push(generateOriginalImport(node));
+            }
+        }
+    console.log("Corrected imports: " + importStatements.join('\n'))
+    return importStatements.join('\n');
+}
+
+function getLastDir(filePath: string): string {
+    // Normalize the path to handle different OS path separators
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    
+    // Split the path by '/' and filter out any empty strings
+    const pathParts = normalizedPath.split('/').filter(part => part !== '');
+    
+    // Get the last directory
+    // If the path ends with a slash or it does not have a file extension, the last element is the last directory
+    // Otherwise, the second last element is the last directory (as the last part is the file)
+    const lastPart = pathParts.pop();
+    return lastPart && !lastPart.includes('.') ? lastPart : pathParts.pop() || '';
+}
+
+function resolveModulePaths(modulePath: string): string[] {
+    let resolvedModulePaths = [];
+    const packageJsonPath = path.join(modulePath, 'package.json');
+
+    if (fs.existsSync(packageJsonPath)) {
+        console.log("packageJsonPath: " + packageJsonPath)
+        const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+        if (packageJson.module && fs.existsSync(path.join(modulePath, packageJson.module))) {
+            console.log("packageJson.module path: " + path.join(modulePath, packageJson.module))
+            resolvedModulePaths.push(path.join(modulePath, packageJson.module))
+        }
+        if (packageJson.main && fs.existsSync(path.join(modulePath, packageJson.main))) {
+            console.log("packageJson.main path: " + path.join(modulePath, packageJson.main))
+            resolvedModulePaths.push(path.join(modulePath, packageJson.main))
+        }
+    }
+    const indexJsPath = path.join(modulePath, 'index.js');
+    const modulePathJs = `${modulePath}.js`;
+    const moduleLastDirJs = path.join(modulePath, `${getLastDir(modulePath)}.js`);
+
+    console.log("package's index.js path: " + indexJsPath);
+    if (fs.existsSync(indexJsPath) && !resolvedModulePaths.includes(indexJsPath)) {
+        console.log("confirmed existence");
+        resolvedModulePaths.push(indexJsPath);
+    }
+
+    console.log("package's other root js path (no added .js): " + modulePath);
+    if (fs.existsSync(modulePath) && !isDirectory(modulePath) && !resolvedModulePaths.includes(modulePath)) {
+        console.log("confirmed existence");
+        resolvedModulePaths.push(modulePath);
+    }
+
+    console.log("package's other root js path (added .js): " + modulePathJs);
+    if (fs.existsSync(modulePathJs) && !resolvedModulePaths.includes(modulePathJs)) {
+        console.log("confirmed existence");
+        resolvedModulePaths.push(modulePathJs);
+    }
+
+    console.log("package's other root lastdir path (added .js): " + moduleLastDirJs);
+    if (fs.existsSync(moduleLastDirJs) && !resolvedModulePaths.includes(moduleLastDirJs)) {
+        console.log("confirmed existence");
+        resolvedModulePaths.push(moduleLastDirJs);
+    }
+    return resolvedModulePaths;
+}
+
+function getNamedExportsRecursively(filePath: string, fileAST: any): string[] {
+    let namedExports: string[] = [];
+    let exportResolved = false;
+  
+    const visitNode = (node: any) => {
+      if (node.type === 'ExportNamedDeclaration') {
+        exportResolved = true;
+        if (node.declaration) {
+          if (node.declaration.declarations) {
+            node.declaration.declarations.forEach((declaration: any) => {
+              namedExports.push(declaration.id.name);
+            });
+          } else if (node.declaration.id) {
+            namedExports.push(node.declaration.id.name);
+          }
+        } else if (node.specifiers) {
+          node.specifiers.forEach((specifier: any) => {
+            namedExports.push(specifier.exported.name);
+          });
+        }
+      } else if (node.type === 'AssignmentExpression' && node.left.type === 'MemberExpression' && node.left.object.name === 'exports') {
+        exportResolved = true;
+        namedExports.push(node.left.property.name);
+      } else if (node.type === 'CallExpression' && node.callee.name === 'require' && !exportResolved) {
+        console.log("Found require");
+        const requiredPath = node.arguments[0].value;
+        const absoluteRequiredPath = path.resolve(path.dirname(filePath), requiredPath);
+        try {
+          const requiredContent = fs.readFileSync(absoluteRequiredPath, 'utf-8');
+          const requiredAST = getAST(requiredContent);
+          const nestedNamedExports = getNamedExportsRecursively(absoluteRequiredPath, requiredAST);
+          namedExports = [...namedExports, ...nestedNamedExports];
+        } catch (err) {
+          // Handle potential error in reading required file
+        }
+      }
+  
+      // Recursively visit child nodes
+      for (const key in node) {
+        if (node[key] && typeof node[key] === 'object') {
+          visitNode(node[key]);
+        }
+      }
+    };
+  
+    for (const node of fileAST.body) {
+      visitNode(node);
+    }
+  
+    return namedExports;
+  }
+
+function isDirectory(path: string) {
+    try {
+      const stats = fs.lstatSync(path);
+      return stats.isDirectory();
+    } catch (err) {
+      console.error(err);
+      return false;
+    }
+  }
+
+function getAbsoluteImportPath(projectPath: string, filePathInProject: string, importPath: string): string {
+    // Resolve the directory of the file within the project
+    const fileDir = path.dirname(path.join(projectPath, filePathInProject));
+    
+    // Resolve the absolute import path
+    const absoluteImportPath = path.resolve(fileDir, importPath);
+    
+    return absoluteImportPath;
+}
+
+function existsSyncWithExtensions(filePathWithoutExtension: string): boolean {
+    return fs.existsSync(filePathWithoutExtension) || fs.existsSync(`${filePathWithoutExtension}.js`)
+        || fs.existsSync(`${filePathWithoutExtension}.jsx`) || fs.existsSync(`${filePathWithoutExtension}.ts`)
+        || fs.existsSync(`${filePathWithoutExtension}.ts`) || fs.existsSync(`${filePathWithoutExtension}.tsx`)
+}
+
+function readFileWithExtensions(filePathWithoutExtension: string): string {
+    const extensions = ['', '.js', '.jsx', '.ts', '.tsx'];
+
+    for (const ext of extensions) {
+        const fullPath = `${filePathWithoutExtension}${ext}`;
+        try {
+            const data = fs.readFileSync(fullPath, 'utf-8');
+            return data;
+        } catch (err: any) {
+            if (err.code !== 'ENOENT') {
+                throw err; // rethrow if it's an error other than file not found
+            }
+        }
+    }
+
+    throw new Error(`File not found: ${filePathWithoutExtension} with any of the extensions ${extensions.join(', ')}`);
+}
+
+function getNamedExports(fileAST: any): string[] {
+    const namedExports: string[] = [];
+
+    walk.simple(fileAST, {
+        ExportNamedDeclaration(node: any) {
+            if (node.declaration) {
+                if (node.declaration.declarations) {
+                    node.declaration.declarations.forEach((declaration: any) => {
+                        namedExports.push(declaration.id.name);
+                    });
+                } else if (node.declaration.id) {
+                    namedExports.push(node.declaration.id.name);
+                }
+            } else if (node.specifiers) {
+                node.specifiers.forEach((specifier: any) => {
+                    namedExports.push(specifier.exported.name);
+                });
+            }
+        }
+    });
+
+    return namedExports;
+}
+
+function generateOriginalImport(node: any): string {
+    const importNames = node.specifiers.map((specifier: any) => {
+        if (specifier.type === 'ImportDefaultSpecifier') {
+            return specifier.local.name;
+        } else if (specifier.type === 'ImportSpecifier') {
+            return specifier.imported.name;
+        } else if (specifier.type === 'ImportNamespaceSpecifier') {
+            return `* as ${specifier.local.name}`;
+        }
+    }).join(', ');
+
+    return `import ${importNames} from '${node.source.value}';`;
+}
+
+function stripUse(file: string) {
+    const lines = file.split('\n');
+    let useDirectiveRemoved = false;
+
+    const strippedLines = lines.filter(line => {
+        if (!useDirectiveRemoved) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith("'use ") || trimmedLine.startsWith('"use ')) {
+                useDirectiveRemoved = true;
+                console.log("Found line that starts with use");
+                return false;
+            }
+        }
+        return true;
+    });
+    if (!useDirectiveRemoved)
+        console.log("Didn't find line that starts with use");
+
+    return strippedLines.join('\n');
+}
+
+function stripImports(file: string) {
+    const lines = file.split('\n');
+    let importSectionEnded = false;
+
+    const strippedLines = lines.filter(line => {
+        // If the import section has already ended, keep the line
+        if (importSectionEnded) {
+            return true;
+        }
+        // Check if the line is an import statement
+        if (line.trim().startsWith('import ')) {
+            return false;
+        }
+        // Check if the line is a blank line
+        if (line.trim() === '') {
+            return false;
+        }
+        // If it's not an import statement and not a blank line, mark the end of the import section
+        importSectionEnded = true;
+        return true;
+    });
+
+    return strippedLines.join('\n');
+}
+
+function joinUse(oldFile: string, newFile: string) {
+    function extractUseDirective(fileContent: string) {
+        const lines = fileContent.split('\n');
+        for (const line of lines) {
+            const trimmedLine = line.trim();
+            const match = trimmedLine.match(/^['"]use \w+['"][;]?/);
+            if (match) {
+                return match[0];
+            }
+            if (trimmedLine.length > 0) {
+                break;
+            }
+        }
+        return '';
+    }
+
+    const newUseDirective = extractUseDirective(newFile);
+    if (newUseDirective) {
+        return newUseDirective;
+    }
+
+    const oldUseDirective = extractUseDirective(oldFile);
+    return oldUseDirective || '';
+}
+
+function joinImports(existingFile: string, codeSnippet: string) {
+    const newAST = getAST(codeSnippet);
+    const oldAST = getAST(existingFile);
+    const oldImports = new Map();
+    const newImports = new Map();
+
+    function collectImports(ast: any, importsMap: any) {
+        walkSimple(ast, {
+            ImportDeclaration(node) {
+                node.specifiers.forEach(specifier => {
+                    let importedName;
+                    if (specifier.type === 'ImportSpecifier') {
+                        importedName = specifier.imported.type === 'Identifier' 
+                            ? specifier.imported.name 
+                            : specifier.local.name;
+                    } else {
+                        importedName = specifier.local.name;
+                    }
+                    importsMap.set(importedName, node.source.value);
+                });
+            }
+        });
+    }
+
+    collectImports(oldAST, oldImports);
+    collectImports(newAST, newImports);
+
+    // Combine the imports, preferring newImports if there's a conflict
+    const combinedImports = new Map(oldImports);
+    for (const [importedName, source] of newImports.entries()) {
+        combinedImports.set(importedName, source);
+    }
+
+    // Format the combined imports into a string
+    const joinedImports = Array.from(combinedImports.entries())
+        .map(([importedName, source]) => {
+            return `import ${importedName} from '${source}';`;
+        })
+        .join('\n');
+
+    return joinedImports;
+}
+
 
 function getAST(code: string): any {
 

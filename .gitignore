@@ -1,5 +1,8 @@
 /target
 .env
+env.json
+env.ts
+env.js
 serviceAccountKey.json
 hidden-test-feature.json
 feature.json

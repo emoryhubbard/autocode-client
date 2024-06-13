@@ -8,6 +8,7 @@ import * as child_process from "child_process";
 import  dynamicImport from '../library/dynamic-import';
 import { resolve } from 'path';
 import { getUpdatedFile, isPlaceholder } from "./get-updated-file";
+import { exec } from 'child_process';
 
 dotenv.config();
 
@@ -119,7 +120,7 @@ async function executeStep(step: any, repoDir: string) {
     const codeAttempts: string[] = [];
     const logs: string[] = [];
     const passingResponses: string[] = [];
-    let currPrompt = getPrompt(step);
+    let currPrompt = await getPrompt(step);
     let trimmedCode = "";
 
     console.log("\ncurr_prompt:", currPrompt);
@@ -169,9 +170,65 @@ function addFileContents(file: any) {
     }
 }
 
-function getPrompt(step: any) {
+interface TreeOptions {
+    base: string;
+    fullpath?: boolean;
+    noreport?: boolean;
+    exclude?: string[];
+    maxdepth?: number;
+}
+
+function generateTree(options: TreeOptions): Promise<string> {
+    return new Promise((resolve, reject) => {
+        const excludePattern = options.exclude ? options.exclude.join(', ') : '';
+        const cmd = `tree ${options.base} ${excludePattern ? `--ignore '${excludePattern}'` : ''} ${options.maxdepth ? `-l ${options.maxdepth}` : ''}`;
+        console.log(cmd);
+
+        exec(cmd, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+            } else if (stderr) {
+                reject(new Error(stderr));
+            } else {
+                resolve(stdout);
+            }
+        });
+    });
+}
+
+async function getPrompt(step: any) {
     const PROMPT = '';
     let prompt = PROMPT;
+
+    const tree = require('tree-cli');
+
+    console.log(process.env.PROJECT_PATH);
+    // Set the options for generating the tree
+    const options: TreeOptions = {
+        base: process.env.PROJECT_PATH || '', // Replace with your directory path
+        fullpath: true,                  // Show full paths in the tree
+        noreport: true,                   // Do not show file and directory count
+        exclude: process.env.EXCLUDE_DIR ? process.env.EXCLUDE_DIR.split(" "): [''], // Exclude 'node_modules' directory
+        maxdepth: 5                       // Limit the depth of the tree
+    };
+
+
+
+    let dirTree = '';
+    // Generate the tree
+    tree(options, (err: Error | null, res: string) => {
+        if (err) {
+            console.error(err);
+        } else {
+            dirTree = res;
+        }
+    });
+    try {
+        dirTree = await generateTree(options);
+    } catch (error) {console.log(error)}
+
+    if (process.env.SHOW_DIR == "true")
+        prompt += "\nTo help with import statements, this is the directory structure: " + dirTree + '\n';
 
     const files = step["files"];
     for (const file of files) {
@@ -206,7 +263,7 @@ async function createOrModify(step: any, newContents: string) {
     const existingLines = existingContents.split("\n").length;
     if (containsPlaceholder(newContents.split("\n"))) {
         console.log("Detected placeholder");
-        fs.writeFileSync(targetFilePath, getUpdatedFile(existingContents, newContents))
+        fs.writeFileSync(targetFilePath, getUpdatedFile(existingContents, newContents, targetFilePath))
     }
     else if (newLines < existingLines / 2) {
         console.log("Detected snippet without placeholder")

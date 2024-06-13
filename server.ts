@@ -4,7 +4,8 @@ import fs from "fs"; // Import the fs module
 import { promisify } from 'util';
 import { resolve } from 'path';
 import  dynamicImport from './library/dynamic-import';
-import { ASTtest, compareNoCommon, getUpdatedFile, hasSimpleCall, hasSimpleCallWithArrow, hasUniqueSimpleCallWithArrow, isPlaceholder, isUnique } from "./library/get-updated-file";
+import { ASTtest, compareNoCommon, correctImports, getLargestMatch, getUpdatedFile, hasSimpleCall, hasSimpleCallWithArrow, hasUniqueSimpleCallWithArrow, isPlaceholder, isUnique } from "./library/get-updated-file";
+import { getUpdatedFunctionsTest } from "./library/get-updated-functions-test";
 
 dotenv.config();
 const app: Express = express();
@@ -47,6 +48,14 @@ const port = parseInt(process.env.PORT || "3000");
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
+
+//getUpdatedFunctionsTest();
+
+/*const text1 = "Here is some sample text with a // rest of code goes here";
+const text2 = "Here is some sample text with a placeholder and more text";
+
+const match = getLargestMatch(text1, text2);
+console.log(match);*/
 
 //console.log("Testing if } is unique: " + isUnique("}", ["", "", "}"], ["", "}", "}"]));
 //console.log("isPlaceholder: " + isPlaceholder("  // ..."));
