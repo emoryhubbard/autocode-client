@@ -1,0 +1,13 @@
+export default function Home() {
+const setLastVisit = () => {
+setLocalStorage('lastVisit', new Date());
+console.log('Last visit set to: ' + new Date());
+}
+setLastVisit(); // Call the setLastVisit function to ensure it runs
+// Rest of the component code
+return (
+<>
+{/* Rest of the JSX code */}
+</>
+)
+}

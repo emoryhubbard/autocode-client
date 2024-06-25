@@ -12,15 +12,16 @@ import * as path from 'path';
 import * as util from 'util';
 import DiffMatchPatch from 'diff-match-patch';
 import { Diff } from 'diff-match-patch';
+import { diffChars } from 'diff';
 
 const readFile = util.promisify(fs.readFile);
 
 export function isPlaceholder(line: string): boolean {
     // Check for placeholders starting with //, /*, or {/* followed by rest, ..., or snip
-    const regex1 = /^(\s*)(\/\/|\/\*|\{\/\*)(.*)(rest|\.\.\.|\. \. \.|snip)/i;
+    const regex1 = /^(\s*)(\/\/|\/\*|\{\/\*)(.*)(rest|\.\.\.|\. \. \.|snip|placeholder)/i;
 
     // Check for placeholders starting with other characters followed by whitespace and rest, ..., or snip
-    const regex2 = /[^'"](\s+)(rest|\.\.\.|\. \. \.|snip)(\s+)/i;
+    const regex2 = /[^'"](\s+)(rest|\.\.\.|\. \. \.|snip|placeholder)(\s+)/i;
 
     if (regex1.test(line)) {
         return true;
@@ -82,11 +83,11 @@ export function closeWhenPlaceholder(file: string) {
     return lines.join('\n');
 }
 
-export function getUpdatedFile(existingFile: string, codeSnippet: string, filePath: string): string {
+export async function getUpdatedFile(existingFile: string, codeSnippet: string, filePath: string): Promise<string> {
     if (endsWithPlaceholder(codeSnippet)) 
         codeSnippet = closeWhenPlaceholder(codeSnippet);
 
-    const missingPlaceholders = getMissingPlaceholders(existingFile, codeSnippet);
+    const missingPlaceholders = await getMissingPlaceholders(existingFile, codeSnippet);
     if (missingPlaceholders.length > 0) {
         let modifiedCodeSnippet = codeSnippet;
         let lineIndexOffset = 0;
@@ -399,7 +400,7 @@ function insertPlaceholder(codeSnippet: string, lineIndex: number): string {
     return lines.join('\n');
 }*/
 
-export function getMissingPlaceholders(existingFile: string, codeSnippet: string): number[] {
+export async function getMissingPlaceholders(existingFile: string, codeSnippet: string): Promise<number[]> {
     // Initialize the line tracker with the original line indices
     let lineTracker: number[] = Array.from(Array(codeSnippet.split('\n').length).keys());
     console.log("lineTracker at start: " + lineTracker);
@@ -495,7 +496,7 @@ export function getMissingPlaceholders(existingFile: string, codeSnippet: string
     lineTracker = lineTrackerBackup
 
     // Get the largest matches
-    const matches = getLargestMatches(processedExistingFile, processedCodeSnippet, 6);
+    const matches = await getLargestMatchesDiffLib(processedExistingFile, processedCodeSnippet, 6);
 
     console.log("Matches: ");
     for (let i = 0; i < matches.length; i++) {
@@ -556,7 +557,20 @@ export function getMissingPlaceholders(existingFile: string, codeSnippet: string
         const currentMatchEndLine = getLine(processedCodeSnippet, currentMatch.end2);
         const nextMatchStartLine = getLine(processedCodeSnippet, nextMatch.start2);
 
-        if (!isPlaceholder(processedCodeSnippet.split('\n')[nextMatchStartLine - 1])) {
+        console.log("CurrentMatchEndLine: " + currentMatchEndLine);
+        console.log("NextMatchStartLine: " + nextMatchStartLine);
+
+        let placeholderFound = false;
+        for (let j = currentMatchEndLine + 1; j < nextMatchStartLine; j++) {
+            console.log("Checking the following line for a placeholder: " + processedCodeSnippet.split('\n')[j]);
+            if (isPlaceholder(processedCodeSnippet.split('\n')[j])) {
+                placeholderFound = true;
+                console.log("Placeholder found in line");
+                break;
+            } else {console.log("Placeholder not found in line");}
+        }
+
+        if (!placeholderFound) {
             //const lineDifference = lineDifferenceCodeSnippet - lineDifferenceExistingFile;
             console.log("Missing placeholder to be inserted at line " + nextMatchStartLine );
             const lineIndex = getOriginalIndex(nextMatchStartLine, lineTracker);
@@ -567,9 +581,19 @@ export function getMissingPlaceholders(existingFile: string, codeSnippet: string
             console.log("Processed codeSnippet: " + processedCodeSnippet);
             missingPlaceholders.push(lineIndex);
         }
-    }
 
-    
+        /*if (!isPlaceholder(processedCodeSnippet.split('\n')[nextMatchStartLine - 1])) {
+            //const lineDifference = lineDifferenceCodeSnippet - lineDifferenceExistingFile;
+            console.log("Missing placeholder to be inserted at line " + nextMatchStartLine );
+            const lineIndex = getOriginalIndex(nextMatchStartLine, lineTracker);
+            //const lineIndex = getOriginalIndex((nextMatchStartLine - 1), lineTracker);
+            console.log("Missing placeholder to be inserted at line " + lineIndex
+                + " relative to original codeSnippet");
+            console.log("Original codeSnippet: " + codeSnippet);
+            console.log("Processed codeSnippet: " + processedCodeSnippet);
+            missingPlaceholders.push(lineIndex);
+        }*/
+    }
 
     return missingPlaceholders;
 }
@@ -1022,9 +1046,237 @@ function getRawLargestMatches(text1: string, text2: string, matchNumber: number)
     return largestMatches;
 }
 
+export async function fastFetch(url: string, data: { [key: string]: any }, post: boolean = false): Promise<any> {
+    let response;
+    let requestOptions: RequestInit;
+
+    if (post) {
+        requestOptions = {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        };
+    } else {
+        const params = new URLSearchParams(data);
+        url += `?${params.toString()}`;
+        requestOptions = {
+            method: 'GET'
+        };
+    }
+
+    try {
+        response = await fetch(url, requestOptions);
+        if (!response.ok) {
+            throw new Error(`HTTP error! Status: ${response.status}`);
+        }
+        const resultData = await response.json();
+        return resultData;
+    } catch (error) {
+        console.error('Error fetching data:', error);
+        throw error;
+    }
+}
+
+export async function getLargestMatchesDiffLib(text1: string, text2: string, matchNumber: number): Promise<{ start1: number; end1: number; start2: number; end2: number; length: number; originalIndex: number; }[]> {
+    console.log("text1: " + text1);
+    console.log("text2: " + text2);
+    const diffs = await fastFetch(`http://localhost:${process.env.FLASK_PORT}/get-diffs`,
+        {text1: text1, text2: text2}, true);
+    //console.log("Raw diffs: " + diffs);
+    for (const diff of diffs.diffs) {
+        console.log("Diff type: " + diff.type, "\nRaw diff: " + diff.text);
+    }
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number}[] = [];
+    const emptyMatches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number}[] = [];
+    const newlineChar = '\n';
+
+    let start1 = 0;
+    let start2 = 0;
+    let originalIndex = 0;
+    for (const diff of diffs.diffs) {
+        if (diff.type === 'equal') { // Equal diffs
+            const matchLength = diff.text.length;
+            let adjustedStart1 = start1;
+            let adjustedEnd1 = start1 + matchLength;
+            let adjustedStart2 = start2;
+            let adjustedEnd2 = start2 + matchLength;
+             // Check if the match already spans complete lines
+            const isStart1Complete = text1[adjustedStart1 - 1] === newlineChar || adjustedStart1 === 0;
+            const isEnd1Complete = text1[adjustedEnd1] === newlineChar || adjustedEnd1 === text1.length;
+            const isStart2Complete = text2[adjustedStart2 - 1] === newlineChar || adjustedStart2 === 0;
+            const isEnd2Complete = text2[adjustedEnd2] === newlineChar || adjustedEnd2 === text2.length;
+            console.log("Checking if match spans complete lines: ");
+            if (!(isStart1Complete && isEnd1Complete && isStart2Complete && isEnd2Complete)) {
+                console.log("Match does not span complete lines. Adjusting...");
+                // Adjust start and end positions if the match does not span complete lines
+                adjustedStart1 = adjustToLineBreak(text1, adjustedStart1, true);
+                adjustedEnd1 = adjustToLineBreak(text1, adjustedEnd1, false);
+                adjustedStart2 = adjustToLineBreak(text2, adjustedStart2, true);
+                adjustedEnd2 = adjustToLineBreak(text2, adjustedEnd2, false);
+            }
+
+            /*const matchLength = diff[1].length;
+            const adjustedStart1 = adjustToLineBreak(text1, start1, true);
+            const adjustedEnd1 = adjustToLineBreak(text1, start1 + matchLength, false);
+            const adjustedStart2 = adjustToLineBreak(text2, start2, true);
+            const adjustedEnd2 = adjustToLineBreak(text2, start2 + matchLength, false);*/
+
+            /*matches.push({
+                start1: adjustedStart1,
+                end1: adjustedEnd1,
+                start2: adjustedStart2,
+                end2: adjustedEnd2,
+                length: adjustedEnd1 - adjustedStart1,
+            });*/
+
+            const adjustedMatch1 = text1.substring(adjustedStart1, adjustedEnd1);
+            const adjustedMatch2 = text2.substring(adjustedStart2, adjustedEnd2);
+            /*if (text1.includes(adjustedMatch2) && text2.includes(adjustedMatch1)) {*/
+            console.log("Check if should add one match to matches");
+            console.log(`Checking: ${adjustedStart1}, ${adjustedEnd1},
+                ${adjustedStart2}, ${adjustedEnd2}, ${adjustedMatch1}, ${adjustedMatch2}`);
+            if (adjustedEnd1 !== adjustedStart1 && adjustedEnd2 !== adjustedStart2 && text1.includes(adjustedMatch2) && text2.includes(adjustedMatch1)) {
+                console.log("Adding one match to matches");
+                matches.push({
+                    start1: adjustedStart1,
+                    end1: adjustedEnd1,
+                    start2: adjustedStart2,
+                    end2: adjustedEnd2,
+                    length: adjustedEnd1 - adjustedStart1,
+                    originalIndex: originalIndex++,
+                });
+            }
+            // Update the start positions for the next diff segment
+            start1 += matchLength + 1;
+            start2 += matchLength + 1;
+
+        }
+        // Update the start positions for the next diff segment
+        if (diff.type == 'delete') {
+            start1 += diff.text1.length + 1;
+        }
+        if (diff.type == 'insert') {
+            start2 += diff.text2.length + 1
+        }
+        if (diff.type == 'replace') {
+            start1 += diff.text1.length + 1;
+            start2 += diff.text2.length + 1;
+        }
+    }
+    
+
+    // Sort matches by length in descending order and return the top N matches
+    matches.sort((a, b) => b.length - a.length);
+    const largestMatches = matches.slice(0, matchNumber);
+
+    console.log("Logging matches if any: ");
+    for (const match of largestMatches) {
+        console.log(`match: ${match.start1}, ${match.end1}, ${match.start2}, ${match.end2}, 
+        ${match.originalIndex}`)
+    }
+    if (largestMatches.length == 0) {
+        console.log("No matches found");
+        return emptyMatches;
+    }
+
+    // If largest match spans too few lines, return no matches
+    if ( (getLine(text2, largestMatches[0].end2) - getLine(text2, largestMatches[0].start2) ) < 4) {
+        console.log("No matches found");
+        return emptyMatches;
+    }
+
+    // Sort matches by position
+    largestMatches.sort((a, b) => a.originalIndex - b.originalIndex);
+
+    return largestMatches;
+}
+
+export function getLargestMatchesDiff(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number, length: number, originalIndex: number }[] {
+    const diffs = diffChars(text1, text2);
+    console.log("text1: " + text1);
+    console.log("text2: " + text2);
+    for (const diff of diffs) {
+        console.log("Raw diff: " + diff.value + "Removed: " + diff.removed + "Added: " + diff.added);
+    }
+    const matches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number }[] = [];
+    const emptyMatches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number }[] = [];
+    const newlineChar = '\n';
+
+    let start1 = 0;
+    let start2 = 0;
+    let originalIndex = 0;
+
+    for (const diff of diffs) {
+        if (diff.added === undefined && diff.removed === undefined) { // DIFF_EQUAL
+            const matchLength = diff.value.length;
+            let adjustedStart1 = start1;
+            let adjustedEnd1 = start1 + matchLength;
+            let adjustedStart2 = start2;
+            let adjustedEnd2 = start2 + matchLength;
+
+            // Check if the match already spans complete lines
+            const isStart1Complete = text1[adjustedStart1] === newlineChar || adjustedStart1 === 0;
+            const isEnd1Complete = text1[adjustedEnd1 - 1] === newlineChar || adjustedEnd1 === text1.length;
+            const isStart2Complete = text2[adjustedStart2] === newlineChar || adjustedStart2 === 0;
+            const isEnd2Complete = text2[adjustedEnd2 - 1] === newlineChar || adjustedEnd2 === text2.length;
+
+            if (!(isStart1Complete && isEnd1Complete && isStart2Complete && isEnd2Complete)) {
+                // Adjust start and end positions if the match does not span complete lines
+                adjustedStart1 = adjustToLineBreak(text1, adjustedStart1, true);
+                adjustedEnd1 = adjustToLineBreak(text1, adjustedEnd1, false);
+                adjustedStart2 = adjustToLineBreak(text2, adjustedStart2, true);
+                adjustedEnd2 = adjustToLineBreak(text2, adjustedEnd2, false);
+            }
+
+            const adjustedMatch1 = text1.substring(adjustedStart1, adjustedEnd1);
+            const adjustedMatch2 = text2.substring(adjustedStart2, adjustedEnd2);
+
+            if (adjustedEnd1 !== adjustedStart1 && adjustedEnd2 !== adjustedStart2 && text1.includes(adjustedMatch2) && text2.includes(adjustedMatch1)) {
+                matches.push({
+                    start1: adjustedStart1,
+                    end1: adjustedEnd1,
+                    start2: adjustedStart2,
+                    end2: adjustedEnd2,
+                    length: adjustedEnd1 - adjustedStart1,
+                    originalIndex: originalIndex++,
+                });
+            }
+        }
+
+        // Update the start positions for the next diff segment
+        if (diff.removed === undefined) {
+            start1 += diff.value.length;
+        }
+        if (diff.added === undefined) {
+            start2 += diff.value.length;
+        }
+    }
+
+    // Sort matches by length in descending order and return the top N matches
+    matches.sort((a, b) => b.length - a.length);
+    const largestMatches = matches.slice(0, matchNumber);
+
+    // If largest match spans too few lines, return no matches
+    if ((getLine(text2, largestMatches[0].end2) - getLine(text2, largestMatches[0].start2)) < 4)
+        return emptyMatches;
+
+    // Sort matches by position
+    largestMatches.sort((a, b) => a.originalIndex - b.originalIndex);
+
+    return largestMatches;
+}
+
 export function getLargestMatches(text1: string, text2: string, matchNumber: number): { start1: number; end1: number; start2: number; end2: number, length: number, originalIndex: number }[] {
     const dmp = new DiffMatchPatch();
+    console.log("text1: " + text1);
+    console.log("text2: " + text2);
     const diffs: Diff[] = dmp.diff_main(text1, text2);
+    //console.log("Raw diffs: " + diffs);
+    for (const diff of diffs) {
+        console.log("Raw diff: " + diff);
+    }
     const matches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number}[] = [];
     const emptyMatches: { start1: number; end1: number; start2: number; end2: number; length: number, originalIndex: number}[] = [];
     const newlineChar = '\n';

@@ -263,7 +263,7 @@ async function createOrModify(step: any, newContents: string) {
     const existingLines = existingContents.split("\n").length;
     if (containsPlaceholder(newContents.split("\n"))) {
         console.log("Detected placeholder");
-        fs.writeFileSync(targetFilePath, getUpdatedFile(existingContents, newContents, targetFilePath))
+        fs.writeFileSync(targetFilePath, await getUpdatedFile(existingContents, newContents, targetFilePath))
     }
     else if (newLines < existingLines / 2) {
         console.log("Detected snippet without placeholder")

@@ -5,7 +5,7 @@ import { promisify } from 'util';
 import { resolve } from 'path';
 import  dynamicImport from './library/dynamic-import';
 import { ASTtest, compareNoCommon, correctImports, getLargestMatch, getUpdatedFile, hasSimpleCall, hasSimpleCallWithArrow, hasUniqueSimpleCallWithArrow, isPlaceholder, isUnique } from "./library/get-updated-file";
-import { getUpdatedFunctionsTest } from "./library/get-updated-functions-test";
+import { getUpdatedFileTest } from "./library/get-updated-functions-test";
 
 dotenv.config();
 const app: Express = express();
@@ -49,7 +49,7 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-//getUpdatedFunctionsTest();
+getUpdatedFileTest();
 
 /*const text1 = "Here is some sample text with a // rest of code goes here";
 const text2 = "Here is some sample text with a placeholder and more text";
@@ -71,9 +71,12 @@ if (process.env.FEATURE) {
             const feature = JSON.parse(data);
             console.log("Feature loaded:", feature);
             // Call execute-steps endpoint with the feature
+            const startTime = new Date().getTime(); // Get start time in milliseconds
             let response = await fetch(`http://localhost:${port}/api/execute-steps`, {method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ feature }) });
             console.log(await response.json());
+            console.log("Time elapsed for execute-steps endpoint: "
+                + (((new Date().getTime()) - startTime) / 1000) + " sec"); // Convert milliseconds to seconds
         } catch (error) {
             console.error("Error parsing JSON:", error);
         }
