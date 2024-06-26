@@ -1,13 +1,21 @@
 export default function Home() {
+const [allValues, setAllValues] =  useState({name: null, email: null, saves: 3});
 const setLastVisit = () => {
 setLocalStorage('lastVisit', new Date());
-console.log('Last visit set to: ' + new Date());
+console.log('Last visit time set to: ' + new Date());
 }
-setLastVisit(); // Call the setLastVisit function to ensure it runs
-// Rest of the component code
+useEffect( () => {
+fetch('/api/session')
+.then((response) => response.json())
+.then((data) => {
+const { name, email, saves } = data.session;
+setAllValues({name: name, email: email, saves: saves});
+});
+setLastVisit();
+}, []);
 return (
 <>
-{/* Rest of the JSX code */}
+{/* Rest of the component code */}
 </>
 )
 }

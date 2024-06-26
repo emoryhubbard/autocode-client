@@ -538,6 +538,34 @@ export default function Home() {
     )
 }`;
 
+const snippet9 = `import { setLocalStorage } from './utils.mjs';
+
+export default function Home() {
+    const [allValues, setAllValues] =  useState({name: null, email: null, saves: 3});
+
+    const setLastVisit = () => {
+        setLocalStorage('lastVisit', new Date());
+        console.log('Last visit time set to: ' + new Date());
+    }
+
+    useEffect( () => {
+       fetch('/api/session')
+        .then((response) => response.json())
+        .then((data) => {
+            const { name, email, saves } = data.session;
+            setAllValues({name: name, email: email, saves: saves});
+        });
+
+        setLastVisit();
+    }, []);
+
+    return (
+        <>
+        {/* Rest of the component code */}
+        </>
+    )
+}`;
+
 function printSnippetUpdated(existingFile: string, snippet: string, updated: string) {
     console.log("Snippet: ");
     console.log(snippet);
@@ -560,12 +588,13 @@ const tests = [
     [existingFile1, snippet5, "Test 5"],
     [existingFile4_5, snippet4, "Test 4.5", "true"],
     [existingFile7, snippet7, "Test 7", "true"],
-    [existingFile8, snippet8, "Test 8", "true"]
+    [existingFile8, snippet8, "Test 8", "true"],
+    [existingFile1, snippet9, "Test 9"],
 ]
 
 export async function getUpdatedFileTest() {
     fullTest();
-    //oneTest(existingFile8, snippet8);
+    //oneTest(existingFile1, snippet9);
 }
 async function oneTest(existingFile: string, snippet: string) {
     await getUpdatedFile(existingFile, snippet, "src/app/page.jsx");

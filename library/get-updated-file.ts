@@ -367,7 +367,7 @@ export async function getUpdatedFile(existingFile: string, codeSnippet: string, 
         newFile = stripUse(newFile);
         newFile = stripImports(newFile);
         newFile = ((process.env.CORRECT_IMPORTS == "true" ?
-            correctImports(joinImports(existingFile, codeSnippet), filePath):
+            await correctImports(joinImports(existingFile, codeSnippet), filePath):
             joinImports(existingFile, codeSnippet))) + '\n' + newFile;
         newFile = joinUse(existingFile, codeSnippet) + '\n' + newFile;
     }
@@ -1727,7 +1727,8 @@ import { useEffect } from 'react';
 import { setLocalStorage } from './components/utils.mjs';
 
 */
-export function correctImports(codeSnippet: string, filePathInProject: string): string {
+
+export async function correctImports(codeSnippet: string, filePathInProject: string): Promise<string> {
     const newAST = getAST(codeSnippet);
     const projectPath = process.env.PROJECT_PATH || '';
     const importStatements: string[] = [];
@@ -1743,8 +1744,95 @@ export function correctImports(codeSnippet: string, filePathInProject: string): 
         const importPath = node.source.value;
         //const absoluteImportPath = path.resolve(path.dirname(filePathInProject), importPath);
         let newImportStatement = '';
+        const originalAbsoluteImportPath = getAbsoluteImportPath(process.env.PROJECT_PATH as string,
+            filePathInProject, importPath);
+        console.log("originalAbsoluteImportPath: " + originalAbsoluteImportPath);
+        if ((importPath.startsWith('.') || path.isAbsolute(importPath)) // indicates it is NOT a node module
+            && !existsSyncWithExtensions(originalAbsoluteImportPath)) { // indicates the path doesn't exist in proj
+            
+            function getFileName(importPath: string): string {
+                // Split the path by '/' or '\' and return the last part
+                const parts = importPath.split(/[/\\]/);
+                return parts[parts.length - 1];
+            }
 
-        if (importPath.startsWith('.') && existsSyncWithExtensions(getAbsoluteImportPath(process.env.PROJECT_PATH as string,
+            async function getFiles(projectPath: string, fileName: string, excludedDirectories: string[]): Promise<string[]> {
+                const filePaths: string[] = [];
+            
+                async function searchDirectory(directory: string) {
+                    const items = await fs.promises.readdir(directory, { withFileTypes: true });
+            
+                    for (const item of items) {
+                        const fullPath = path.join(directory, item.name);
+            
+                        if (item.isDirectory()) {
+                            if (!excludedDirectories.includes(item.name + '/')) { // since each exclude dir has a trailing /
+                                await searchDirectory(fullPath);
+                            }
+                        } else if (item.isFile() && item.name === fileName) {
+                            filePaths.push(fullPath);
+                        }
+                    }
+                }
+            
+                await searchDirectory(projectPath);
+            
+                return filePaths;
+            }
+
+            function getExcludeDirs(): string[] {
+                return process.env.EXCLUDE_DIR ? process.env.EXCLUDE_DIR.split(" "): []
+            }
+
+            const files = await getFiles(process.env.PROJECT_PATH as string, getFileName(importPath),
+                getExcludeDirs());
+
+            for (const file of files) {
+                //console.log("Found file: " + file);
+                const absoluteImportPath = file;
+                console.log("absoluteImportPath: " + absoluteImportPath);
+                const fileContent = readFileWithExtensions(absoluteImportPath);
+                const fileAST = getAST(fileContent);
+                const namedExports = getNamedExportsRecursively(absoluteImportPath, fileAST);
+                console.log("namedExports from " + absoluteImportPath + ": " + namedExports.join('\n'));
+
+                node.specifiers.forEach((specifier: any) => {
+                    if (specifier.type === 'ImportDefaultSpecifier') {
+                        const importName = specifier.local.name;
+
+                        /*const absoluteFilePathInProject = getAbsoluteImportPath(process.env.PROJECT_PATH as string,
+                            filePathInProject, filePathInProject); // not really intended for this but I guess now it is getAbsoluteFilePath()
+                        console.log("absoluteFilePathInProject: " + absoluteFilePathInProject);*/
+                        console.log("PROJECT_PATH: " + process.env.PROJECT_PATH as string);
+                        console.log("filePathInProject: " + filePathInProject);
+                        const absoluteFilePathInProject = path.join(process.env.PROJECT_PATH as string, filePathInProject);
+                        const absoluteFilePathInProjectDir = path.dirname(absoluteFilePathInProject);
+                        let relativePath = path.relative(absoluteFilePathInProjectDir, absoluteImportPath);
+                        if (!relativePath.startsWith('.') && !relativePath.startsWith('/')) {
+                            relativePath = './' + relativePath;
+                        }
+                        console.log("relativePath and more: " + relativePath + " " + absoluteFilePathInProject + " " + absoluteImportPath);
+                        //console.log("relativePath and more: " + relativePath + " " + absoluteFilePathInProject + " " + absoluteImportPath);
+                        if (namedExports.includes(importName)) {
+                            newImportStatement = `import { ${importName} } from '${relativePath}';`;
+                            console.log("Adding named import statement: " + newImportStatement);
+                        } else {
+                            newImportStatement = `import ${importName} from '${relativePath}';`;
+                            console.log("Adding default import statement: " + newImportStatement);
+                        }
+                        importStatements.push(newImportStatement);
+                    }
+                });
+            }
+            if (newImportStatement == '') {
+                newImportStatement = generateOriginalImport(node)
+                console.log("No file could be found with the specified file name");
+                console.log("so adding original import statement: " + newImportStatement);
+                importStatements.push(generateOriginalImport(node));
+            }
+        }
+        else {
+            if (importPath.startsWith('.') && existsSyncWithExtensions(getAbsoluteImportPath(process.env.PROJECT_PATH as string,
                 filePathInProject, importPath))) {
                 console.log("Trying the . relative case: ");
                 const absoluteImportPath = getAbsoluteImportPath(process.env.PROJECT_PATH as string,
@@ -1841,6 +1929,8 @@ export function correctImports(codeSnippet: string, filePathInProject: string): 
                 importStatements.push(generateOriginalImport(node));
             }
         }
+        
+    }
     console.log("Corrected imports: " + importStatements.join('\n'))
     return importStatements.join('\n');
 }

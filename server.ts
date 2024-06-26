@@ -5,7 +5,7 @@ import { promisify } from 'util';
 import { resolve } from 'path';
 import  dynamicImport from './library/dynamic-import';
 import { ASTtest, compareNoCommon, correctImports, getLargestMatch, getUpdatedFile, hasSimpleCall, hasSimpleCallWithArrow, hasUniqueSimpleCallWithArrow, isPlaceholder, isUnique } from "./library/get-updated-file";
-import { getUpdatedFileTest } from "./library/get-updated-functions-test";
+import { getUpdatedFileTest } from "./library/get-updated-file-test";
 
 dotenv.config();
 const app: Express = express();
