@@ -18,10 +18,10 @@ const readFile = util.promisify(fs.readFile);
 
 export function isPlaceholder(line: string): boolean {
     // Check for placeholders starting with //, /*, or {/* followed by rest, ..., or snip
-    const regex1 = /^(\s*)(\/\/|\/\*|\{\/\*)(.*)(rest|\.\.\.|\. \. \.|snip|placeholder)/i;
+    const regex1 = /^(\s*)(\/\/|\/\*|\{\/\*)(.*)(rest|\.\.\.|\. \. \.|snip|existing|placeholder|component code|jsx code|tsx code|react code|code continues|continue code)/i;
 
     // Check for placeholders starting with other characters followed by whitespace and rest, ..., or snip
-    const regex2 = /[^'"](\s+)(rest|\.\.\.|\. \. \.|snip|placeholder)(\s+)/i;
+    const regex2 = /[^'"](\s+)(rest|\.\.\.|\. \. \.|snip|existing|placeholder|component code|jsx code|tsx code|react code|code continues|continue code)(\s+)/i;
 
     if (regex1.test(line)) {
         return true;
@@ -83,11 +83,154 @@ export function closeWhenPlaceholder(file: string) {
     return lines.join('\n');
 }
 
+async function insertMissingPlaceholders(codeSnippet: string, existingFile: string): Promise<string> {
+    const missingPlaceholders = await getMissingPlaceholders(existingFile, codeSnippet);
+    console.log("missingPlaceholders: " + missingPlaceholders);
+    if (missingPlaceholders.length > 0) {
+        let modifiedCodeSnippet = codeSnippet;
+        let lineIndexOffset = 0;
+    
+        for (const lineIndex of missingPlaceholders) {
+            const adjustedLineIndex = lineIndex + lineIndexOffset;
+            modifiedCodeSnippet = insertPlaceholder(modifiedCodeSnippet, adjustedLineIndex);
+            lineIndexOffset++;
+        }
+    
+        console.log("Added placeholders: " + modifiedCodeSnippet);
+        return modifiedCodeSnippet;
+    }
+    return codeSnippet;
+}
+async function post(url: string, data: {[key: string]: any;}): Promise<any> {
+    return fastFetch(url, data, true);
+}
+async function get(url: string, data: {[key: string]: any;} | null = null): Promise<any> {
+    return fastFetch(url, data, false);
+}
+
+function containsPlaceholder(inputString: string) {
+    const lines = inputString.split('\n');
+    for (const line of lines) {
+        if (isPlaceholder(line))
+            return true;
+    }
+    return false;
+}
+
+async function needsMissingPlaceholder(codeSnippet: string, existingFile: string): Promise<boolean> {
+    const diffs = await post(`http://localhost:${process.env.FLASK_PORT}/get-diffs`,
+        {text1: existingFile, text2: codeSnippet});
+
+    console.log("Getting diffs to see if needsMissingPlaceholder");
+    for (const diff of diffs.diffs) {
+        console.log("Diff type: " + diff.type, "\ntext: " + diff.text + " text1: " + diff.text1 + " text2: " + diff.text2);
+    }
+
+    for (const diff of diffs.diffs) {
+        if (diff.type == 'replace' && diff.text1.split('\n').length >= 6
+        && !containsPlaceholder(diff.text2) && !diff.text1.includes("\nimport ")
+        && !diff.text1.includes("'use client'")) {
+            console.log("needsMissingPlaceholder is true");
+            return true;
+        }
+    }
+    console.log("needsMissingPlaceholder is false");
+    return false;
+}
+
+async function needsLostCode(codeSnippet: string, existingFile: string): Promise<boolean> {
+    const diffs = await post(`http://localhost:${process.env.FLASK_PORT}/get-diffs`,
+        {text1: existingFile, text2: codeSnippet});
+
+    console.log("Getting diffs to see if needsLostCode");
+    for (const diff of diffs.diffs) {
+        console.log("Diff type: " + diff.type, "\ntext: " + diff.text + " text1: " + diff.text1 + " text2: " + diff.text2);
+    }
+
+    for (const diff of diffs.diffs) {
+        if (diff.type == 'replace' && diff.text1.split('\n').length >= 6
+        && !containsPlaceholder(diff.text2) && !diff.text1.includes("\nimport ")
+        && !diff.text1.includes("'use client'")) {
+            console.log("needsLostCode is true (due to a large replace diff)");
+            return true;
+        }
+        if (diff.type == 'delete' && diff.text1.split('\n').length >= 6
+        && !diff.text1.includes("\nimport ") && !diff.text1.includes("'use client'")) {
+            console.log("needsLostCode is true (due to a large delete diff)");
+            return true;
+        }
+    }
+    console.log("needsLostCode is false");
+    return false;
+}
+
+async function insertLostCode(codeSnippet: string, existingFile: string): Promise<string> {
+    const diffs = await post(`http://localhost:${process.env.FLASK_PORT}/get-diffs`,
+        {text1: existingFile, text2: codeSnippet});
+
+    let lostCodeDiff;
+    let start2 = 0;
+    for (const diff of diffs.diffs) {
+        if (diff.type == 'replace' && diff.text1.split('\n').length >= 6
+        && !containsPlaceholder(diff.text2) && !diff.text1.includes("\nimport ")
+        && !diff.text1.includes("'use client'")) {
+            console.log("needsLostCode is true (due to a large replace diff)");
+            lostCodeDiff = diff;
+            break;
+        }
+        if (diff.type == 'delete' && diff.text1.split('\n').length >= 6
+        && !diff.text1.includes("\nimport ") && !diff.text1.includes("'use client'")) {
+            console.log("needsLostCode is true (due to a large delete diff)");
+            lostCodeDiff = diff;
+            break;
+        }
+        if (diff.type === 'equal') { // Equal diffs
+            // Update the start positions for the next diff segment
+            start2 += diff.text.length; + 1;
+        }
+        // Update the start positions for the next diff segment
+        if (diff.type == 'delete') {
+        }
+        if (diff.type == 'insert') {
+            start2 += diff.text2.length + 1
+        }
+        if (diff.type == 'replace') {
+            start2 += diff.text2.length + 1;
+        }
+    }
+
+    let newSnippet = codeSnippet;
+    if (lostCodeDiff.type == 'replace')
+        newSnippet = codeSnippet.replace(lostCodeDiff.text2, lostCodeDiff.text1 + '\n'
+            + lostCodeDiff.text2)
+    if (lostCodeDiff.type == 'delete')
+        newSnippet = insertStringAt(codeSnippet, '\n' + lostCodeDiff.text1 + '\n', start2)
+
+    console.log("Inserting lost code. New snippet: " + newSnippet);
+    return newSnippet;
+}
+
+function insertStringAt(originalString: string, insertString: string, position: number): string {
+    if (position < 0 || position > originalString.length) {
+        throw new Error("Position out of bounds");
+    }
+    return originalString.slice(0, position) + insertString + originalString.slice(position);
+}
+
 export async function getUpdatedFile(existingFile: string, codeSnippet: string, filePath: string): Promise<string> {
     if (endsWithPlaceholder(codeSnippet)) 
         codeSnippet = closeWhenPlaceholder(codeSnippet);
 
-    const missingPlaceholders = await getMissingPlaceholders(existingFile, codeSnippet);
+    if (await needsLostCode(codeSnippet, existingFile))
+        codeSnippet = await insertLostCode(codeSnippet, existingFile);
+
+
+    // Same missing placeholder system as below
+    /*if (await needsMissingPlaceholder(codeSnippet, existingFile))
+        codeSnippet = await insertMissingPlaceholders(codeSnippet, existingFile);*/
+
+    // Latest version of the  missing placeholder system, designed to solve test case 7
+    /*const missingPlaceholders = await getMissingPlaceholders(existingFile, codeSnippet);
     if (missingPlaceholders.length > 0) {
         let modifiedCodeSnippet = codeSnippet;
         let lineIndexOffset = 0;
@@ -100,8 +243,9 @@ export async function getUpdatedFile(existingFile: string, codeSnippet: string, 
     
         console.log("Added placeholders: " + modifiedCodeSnippet);
         codeSnippet = modifiedCodeSnippet;
-    }
+    }*/
 
+    // Older version of the system
     /*const missingPlaceholder = detectMissingPlaceholder(existingFile, codeSnippet);
     if (missingPlaceholder != null) {
         codeSnippet = insertPlaceholder(codeSnippet, missingPlaceholder.lineIndex);
@@ -265,8 +409,17 @@ export async function getUpdatedFile(existingFile: string, codeSnippet: string, 
                     }
                 }
                 //console.log("start is " + start);
+                // !existingLines[j+1] is also a condition because of a certain edge case that
+                // really shouldn't happen, but can still happen if code snippet text is
+                // poorly predicted. See Undefined trim error in Notes.
+                let undefinedTrimError = false;
                 for (let j = start; !containsReturn(existingLines[j]); j++) {
                     aboveLines += existingLines[j] + '\n';
+                    if (!existingLines[j+1]) {
+                        undefinedTrimError = true;
+                        break;
+                    }
+
                 }
                 
                 let belowLines = '';
@@ -297,15 +450,49 @@ export async function getUpdatedFile(existingFile: string, codeSnippet: string, 
                 }
                 /*console.log("The aboveLines: " + aboveLines);
                 console.log("The belowLines: " + belowLines);*/
-                newFile += aboveLines;
-                let miniSnipLines = guessdexedSnipLines.slice(newSnipStart, newSnipEnd);
-                miniSnipLines.forEach( ({ line }) => {
-                    newFile += line + '\n';
-                    //console.log("NewSnipLine: " + line);
-                });
-                newFile += belowLines;
+                if (!undefinedTrimError) {
+                    newFile += aboveLines;
+                    let miniSnipLines = guessdexedSnipLines.slice(newSnipStart, newSnipEnd);
+                    miniSnipLines.forEach( ({ line }) => {
+                        newFile += line + '\n';
+                        //console.log("NewSnipLine: " + line);
+                    });
+                    newFile += belowLines;
+                    i = guessdexedSnipLines.indexOf(nextPlaceholder) + 1;
+                }
+                else {
+                    // aboveLines not included in the undefinedTrimError case, since
+                    // both aboveLines and belowLines would simply be equal to the rest of the
+                    // file usually, so it would double code. Normally, the undefinedTrimError
+                    // case shouldn't exist. See Undefined trim error in Notes.
 
-                i = guessdexedSnipLines.indexOf(nextPlaceholder) + 1;
+                    let miniSnipLines = guessdexedSnipLines.slice(newSnipStart, newSnipEnd);
+                    let miniSnip = '';
+                    miniSnipLines.forEach( ({ line }) => {
+                        miniSnip += line + '\n';
+                        //console.log("NewSnipLine: " + line);
+                    });
+                    // I should also look for a main element and put it after the closing
+                    // initial tag, perhaps putting that logic before <h1> and use a regex,
+                    // or get the line that <main is on and index of next line after,
+                    // or have a loop to
+                    // go through each line to check for main, but this is meant to just be
+                    // a quick heuristic for a suitable place and a rogue element can be
+                    // still be specified before main if necessary. This is not supposed to
+                    // a case that happens anyway, just trying to provide the best failure
+                    // behavior which could result in possible recovery through a subsequent
+                    // debugging attempt.
+                    let betterPlace = aboveLines.indexOf('</title>')? aboveLines.indexOf('</title>') + '</title>'.length: -1;
+                    betterPlace = aboveLines.indexOf('<Header />')? aboveLines.indexOf('<Header />') + '<Header />'.length: betterPlace;
+                    betterPlace = aboveLines.indexOf('</h1>')? aboveLines.indexOf('</h1>') + '</h1>'.length: betterPlace;
+                    aboveLines = insertStringAt(aboveLines, '\n' + miniSnip, betterPlace? betterPlace: 0);
+                    newFile += aboveLines;
+                    // Mostly because I just realized that it duplicates a little bit based on
+                    // the line count of the miniSnipLines if you don't advance it
+                    i = guessdexedSnipLines.indexOf(nextPlaceholder) + 1 +
+                        (newSnipEnd - newSnipStart);
+                }
+
             }
             else if (aboveReferences.length > 0 || belowReferences.length > 0) {
                 const aboveIndex = aboveReferences[0];
@@ -372,8 +559,50 @@ export async function getUpdatedFile(existingFile: string, codeSnippet: string, 
         newFile = joinUse(existingFile, codeSnippet) + '\n' + newFile;
     }
 
+    if (isNextProject(process.env.PROJECT_PATH as string) && needsUseClient(newFile))
+        newFile = addUseClient(newFile);
+
     console.log("Updated file: " + newFile.trim());
     return newFile.trim(); // Remove trailing newline
+}
+
+function insertStringAfter(originalString: string, insertString: string, searchString: string): string {
+    const index = originalString.indexOf(searchString);
+
+    if (index === -1) {
+        throw new Error(`Search string "${searchString}" not found in the original string.`);
+    }
+
+    const position = index + searchString.length;
+    return originalString.slice(0, position) + insertString + originalString.slice(position);
+}
+
+function addUseClient(jsxFile: string): string {
+    const useClientDirective = "'use client';\n";
+    const updatedContent = useClientDirective + jsxFile;
+    
+    return updatedContent;
+}
+
+function needsUseClient(jsxFile: string): boolean {
+    return (jsxFile.includes('useState') || jsxFile.includes('useEffect'))
+        && !jsxFile.includes("'use client'");
+}
+
+function isNextProject(projectRoot: string): boolean {
+    const packageJsonPath = path.join(projectRoot, 'package.json');
+
+    if (!fs.existsSync(packageJsonPath)) {
+        return false;
+    }
+
+    const packageJsonContent = fs.readFileSync(packageJsonPath, 'utf-8');
+    const packageJson = JSON.parse(packageJsonContent);
+
+    const scripts = packageJson.scripts || {};
+    const devScript = scripts.dev || '';
+
+    return devScript.includes('next');
 }
 
 function insertPlaceholder(codeSnippet: string, lineIndex: number): string {
@@ -1046,7 +1275,7 @@ function getRawLargestMatches(text1: string, text2: string, matchNumber: number)
     return largestMatches;
 }
 
-export async function fastFetch(url: string, data: { [key: string]: any }, post: boolean = false): Promise<any> {
+export async function fastFetch(url: string, data: { [key: string]: any } | null = null, post: boolean = false): Promise<any> {
     let response;
     let requestOptions: RequestInit;
 
@@ -1056,11 +1285,15 @@ export async function fastFetch(url: string, data: { [key: string]: any }, post:
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify(data)
+            body: data? JSON.stringify(data): ''
         };
-    } else {
+    } else if (data) {
         const params = new URLSearchParams(data);
         url += `?${params.toString()}`;
+        requestOptions = {
+            method: 'GET'
+        };
+    } else {
         requestOptions = {
             method: 'GET'
         };
@@ -1177,13 +1410,13 @@ export async function getLargestMatchesDiffLib(text1: string, text2: string, mat
         ${match.originalIndex}`)
     }
     if (largestMatches.length == 0) {
-        console.log("No matches found");
+        console.log("No matches found, failure criterion is 0 length on largest match");
         return emptyMatches;
     }
 
     // If largest match spans too few lines, return no matches
-    if ( (getLine(text2, largestMatches[0].end2) - getLine(text2, largestMatches[0].start2) ) < 4) {
-        console.log("No matches found");
+    if ( (getLine(text2, largestMatches[0].end2) - getLine(text2, largestMatches[0].start2) ) < 1) {
+        console.log("No matches found, failure criterion is largest match spans too few lines");
         return emptyMatches;
     }
 
@@ -2481,8 +2714,8 @@ function findNodeForLine(ast: any, lineNumber: number, lineOffsets: number[]): a
     walk.simple(ast, {
     JSXElement(node: any) {
     },
-    VariableDeclaration(node: any) {
-        console.log("Inside variable declaration, testing line number " + lineNumber + ", and the declaration start and end is " + node.start + " " + node.end);
+    VariableDeclaration(node: any) { // verbose debugging comments
+        //console.log("Inside variable declaration, testing line number " + lineNumber + ", and the declaration start and end is " + node.start + " " + node.end);
         const startLine = getLineNumberFromOffset(lineOffsets, node.start);
         const endLine = getLineNumberFromOffset(lineOffsets, node.end);
         if (startLine <= lineNumber && endLine >= lineNumber
@@ -2492,7 +2725,7 @@ function findNodeForLine(ast: any, lineNumber: number, lineOffsets: number[]): a
         }
     },
     FunctionDeclaration(node: any) {
-        console.log("Inside function declaration, testing line number " + lineNumber + ", and the declaration start and end is " + node.start + " " + node.end);
+        //console.log("Inside function declaration, testing line number " + lineNumber + ", and the declaration start and end is " + node.start + " " + node.end);
         const startLine = getLineNumberFromOffset(lineOffsets, node.start);
         const endLine = getLineNumberFromOffset(lineOffsets, node.end);
         if (startLine <= lineNumber && endLine >= lineNumber

@@ -15,6 +15,7 @@ execute-steps-temp.ts
 temp.ts
 /library/temp.ts
 /library/temp
+/dist
 
 # Ignore all files within the directory
 library/temp/*

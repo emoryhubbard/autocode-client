@@ -60,8 +60,8 @@ async function evaluateWithTimeout(page: Page, url: string, timeout: number, sho
             allLogs += `${message.text()}\n`;
             //console.log("Logged Puppeteer console message: " + message.text())
     });
-    page.on('pageerror', ({ message, stack}) => {allLogs += `${stack}\n`;
-})
+    page.on('pageerror', ({ message, stack}) => {allLogs += `${stack}\n`;})
+    console.log("URL about to be used for testing: " + url);
     let evaluationPromise = page.goto(url);
 
     await new Promise(r => setTimeout(r, 3000));

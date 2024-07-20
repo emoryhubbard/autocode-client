@@ -1,11 +1,13 @@
 import express, { Express, Request, Response, NextFunction } from "express";
 import dotenv from "dotenv";
-import fs from "fs"; // Import the fs module
+import fs from "fs";
 import { promisify } from 'util';
-import { resolve } from 'path';
+import path, { join, resolve } from 'path';
 import  dynamicImport from './library/dynamic-import';
 import { ASTtest, compareNoCommon, correctImports, getLargestMatch, getUpdatedFile, hasSimpleCall, hasSimpleCallWithArrow, hasUniqueSimpleCallWithArrow, isPlaceholder, isUnique } from "./library/get-updated-file";
 import { getUpdatedFileTest } from "./library/get-updated-file-test";
+import { extractJSX } from "./library/extractjsx";
+import { addFileContents, addFullPath, getPrompt } from "./library/execute-steps";
 
 dotenv.config();
 const app: Express = express();
@@ -29,16 +31,78 @@ function setDotenv(feature: any) {
 
 app.post("/api/execute-steps", async (req, res) => {
     console.log('Inside execute-steps endpoint');
+    if (!req.body.feature) {
+        return res.status(400).json({ error: 'Missing feature' });
+    }
     setDotenv(req.body.feature);
     try {
         // Import and execute dynamic code
         const { executeSteps } = await dynamicImport(resolve(__dirname, 'library', 'execute-steps.ts'));
-        const status = await executeSteps(req.body.feature);
+        const keyValues = await executeSteps(req.body.feature);
 
-        res.status(200).json({ status });
+        res.status(200).json(keyValues);
     } catch (error) {
-        console.error('Error:', error);
+        console.log('Error:', error);
         res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+app.post("/api/auto-insert", async (req, res) => {
+    console.log("Inside auto-insert endpoint");
+    if (!req.body.existingFile || !req.body.codeSnippet || !req.body.filePath) {
+        return res.status(400).json({ error: 'Check if request is missing existingFile, codeSnippet, or filePath.' });
+    }
+    let internalError;
+    console.log("Incoming Request: ", req.body);
+    try {
+        fs.writeFileSync(req.body.filePath, await getUpdatedFile(req.body.existingFile, req.body.codeSnippet, req.body.filePath));
+        res.status(200).json({ internalError });
+    } catch (error) {
+        internalError = "Internal server error: " + error;
+        console.log(internalError);
+        res.status(200).json({ internalError });
+    }
+});
+
+app.post("/api/generate", async (req, res) => {
+    console.log("Inside generate endpoint");
+    let internalError;
+    try {
+        const feature = req.body.feature;
+        let step = feature["steps"][0];
+        const parentDir = path.resolve(__dirname, "..");
+        console.log("Parent Dir: " + parentDir);
+        let repoName;
+        if (process.env.PROJECT_PATH)
+            repoName = path.basename(process.env.PROJECT_PATH);
+        if (!repoName) {
+            throw new Error("Failed to extract repository name from repoURL or PROJECT_PATH");
+        }
+
+        const repoDir = path.join(parentDir, repoName);
+        console.log("Repo Dir: " + repoDir);
+        process.chdir(repoDir);     // very important to remember... should have been in addFileContents
+        const files = step["files"];
+        for (const file of files) {
+            if (process.env.CLONING === "true") {
+                addFullPath(file, repoDir);
+            }
+            addFileContents(file);
+            console.log("fileConents: " + file["fileContents"]);
+        }
+         // very important to remember... dynamically import
+        const { getPrompt } = await dynamicImport(resolve(join(__dirname, "library"), 'execute-steps.ts'));
+        let currPrompt = await getPrompt(step);
+        console.log("Prompt: " + currPrompt);
+        const { prompt } = await dynamicImport(resolve(join(__dirname, "library"), 'prompt.ts'));
+        const codeAttempt = await prompt(currPrompt, process.env.CHATGPT_APIKEY as string);
+        console.log("Code Attempt: " + codeAttempt);
+        const trimmedCode = extractJSX(codeAttempt);
+        res.status(200).json({ trimmedCode, internalError });
+    } catch (error) {
+        internalError = "Internal server error: " + error;
+        console.log(internalError);
+        res.status(200).json({ internalError });
     }
 });
 
@@ -49,7 +113,7 @@ app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
 
-getUpdatedFileTest();
+//getUpdatedFileTest();
 
 /*const text1 = "Here is some sample text with a // rest of code goes here";
 const text2 = "Here is some sample text with a placeholder and more text";

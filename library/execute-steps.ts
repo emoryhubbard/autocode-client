@@ -9,43 +9,62 @@ import  dynamicImport from '../library/dynamic-import';
 import { resolve } from 'path';
 import { getUpdatedFile, isPlaceholder } from "./get-updated-file";
 import { exec } from 'child_process';
+import internal from "stream";
 
 dotenv.config();
 
 export async function executeSteps(feature: any) {
     let steps = feature["steps"];
     const parentDir = path.resolve(__dirname, "..");
-    const repoURL = feature["repoURL"];
-    const repoName = repoURL.match(/\/([^/]+)\.git$/)?.[1];
-
+    let repoName;
+    if (feature["repoURL"]) {
+        const repoURL = feature["repoURL"];
+        repoName = repoURL.match(/\/([^/]+)\.git$/)?.[1];
+    }
+    if (!feature["repoURL"] && process.env.PROJECT_PATH)
+        repoName = path.basename(process.env.PROJECT_PATH);
     if (!repoName) {
-        throw new Error("Failed to extract repository name from repoURL");
+        throw new Error("Failed to extract repository name from repoURL or PROJECT_PATH");
     }
 
     const repoDir = path.join(parentDir, repoName);
 
-    const firstStep = steps[0];
-    await preliminaryRepoTest(repoName, feature["dotenvContents"], firstStep["testPath"]);
-    if (process.env.REACT_STRICT_MODE == "false")
-        await modifyNextConfig(repoName);
 
-    let successful = true;
+    let passing = true;
+    let internalError;
+    let stepResponses = [];
+    try {
+        const firstStep = steps[0];
+        await preliminaryRepoTest(repoName, feature["dotenvContents"], firstStep["testPath"]);
+        if (process.env.REACT_STRICT_MODE == "false")
+            await modifyNextConfig(repoName);
+    }
+    catch (err) {
+        passing = false;
+        internalError = "Internal error with firstStep access, preliminaryRepoTest, or modifyNextConfig: " + err;
+        console.log(internalError);
+    }
     for (const step of steps) {
         try {
-            await executeStep(step, repoDir);
+            let stepResponse = await executeStep(step, repoDir);
+            stepResponses.push(stepResponse);
+            if (!stepResponse["passing"]) {
+                passing = false;
+                break;
+            }
         } catch (err) {
-            successful = false;
-            console.error("Error executing step: ");
-            console.log(err);
+            passing = false;
+            internalError = "Internal error executing step: " + err;
+            console.log(internalError);
             break;
         }
     }
 
-    let status = "Feature completed. Tests passed at each step."
-    if (!successful) {
-        status = "Unable to get all tests to pass. See console logs for details.";
-    }
-    return status;
+    if (passing)
+        console.log("Feature completed. Tests passed at each step.");
+    if (!passing)
+        console.log("Unable to get all tests to pass. See console logs for details.");
+    return {passing, stepResponses, internalError}; // the last passing value is repeated here for convenience since stepResponses might be empty if an error occured, which could also be used to deduce the passing value
 }
 
 async function preliminaryRepoTest(repoName: string, dotenvContents: string, testPath: string) {
@@ -54,7 +73,8 @@ async function preliminaryRepoTest(repoName: string, dotenvContents: string, tes
     const repoDir = path.join(parentDir, repoName);
 
     process.chdir(repoDir);
-    fs.writeFileSync(".env", dotenvContents);
+    if (dotenvContents)
+        fs.writeFileSync(".env", dotenvContents);
 
     // Spawn the terminal process, but don't wait for it
     const terminalProcess = child_process.spawn("gnome-terminal", ["--", "npm", "run", "dev"], {
@@ -149,18 +169,19 @@ async function executeStep(step: any, repoDir: string) {
         }
     }
     if (!passing) {
-        throw new Error("Debugging attempts failed. Aborting execution.");
+        console.log("Debugging attempts failed. Aborting execution.");
     }
+    return { codeAttempts, logs, passingResponses, passing, lastTrimmedCode: trimmedCode };
 }
 
-function addFullPath(file: any, repoDir: string) {
+export function addFullPath(file: any, repoDir: string) {
     const filePath = file["filePath"];
     const updatedFilePath = path.join(repoDir, filePath);
     file["filePath"] = updatedFilePath;
     console.log("Updated filePath:", file["filePath"]);
 }
 
-function addFileContents(file: any) {
+export function addFileContents(file: any) {
     const filePath = file["filePath"];
     try {
         const contents = fs.readFileSync(filePath, "utf-8");
@@ -196,7 +217,7 @@ function generateTree(options: TreeOptions): Promise<string> {
     });
 }
 
-async function getPrompt(step: any) {
+export async function getPrompt(step: any) {
     const PROMPT = '';
     let prompt = PROMPT;
 

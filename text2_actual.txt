@@ -1,21 +1,34 @@
+import {useState, useEffect} from 'react'
+
 export default function Home() {
-const [allValues, setAllValues] =  useState({name: null, email: null, saves: 3});
-const setLastVisit = () => {
-setLocalStorage('lastVisit', new Date());
-console.log('Last visit time set to: ' + new Date());
-}
-useEffect( () => {
-fetch('/api/session')
-.then((response) => response.json())
-.then((data) => {
-const { name, email, saves } = data.session;
-setAllValues({name: name, email: email, saves: saves});
-});
-setLastVisit();
-}, []);
-return (
-<>
-{/* Rest of the component code */}
-</>
-)
+    const [allValues, setAllValues] =  useState({name: null, email: null, saves: 3})
+    useEffect( () => {
+       fetch('/api/session')
+        .then((response) => response.json())
+        .then((data) => {
+            const { name, email, saves } = data.session
+            setAllValues({name: name, email: email, saves: saves})
+        })
+        }, [])
+
+     const handleAutoInsert = () => {
+        const messages = document.getElementsByClassName('message');
+        const lastMessage = messages[messages.length - 1];
+        const messageContent = lastMessage.innerText.split(':');
+        if (messageContent[0] === "Succesfully generated the following code:" && messageContent.length === 2) {
+            const snippet = messageContent[1].trim();
+            console.log("Auto-inserting snippet: " + snippet);
+            // Insert snippet at cursor position
+        }
+    }
+
+    return (
+        <>
+        {/* Placeholder for long JSX code in beginning of big component */}
+        <p className="modified-elment">
+        I'm a paragraph element that has been modified.
+        </p>
+        {/* Placeholder for long JSX code in end of big component */}
+        </>
+    )
 }

@@ -28,8 +28,11 @@ export function extractJSX(inputString: string): string {
             }
         }
     }
-    if (success==false)
-        code = "Error: there was no valid JSX found in the following text: " + inputString;
+    if (success==false) {
+        let internalError = "Error: there was no valid JSX found in the following text: " + inputString;
+        console.log(internalError);
+        throw new Error(internalError);
+    }
     return code;
 }
 function isEmpty(inputString: string): boolean {
