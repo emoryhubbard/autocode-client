@@ -6,32 +6,32 @@ The Autocode Client is the Node successor to the Autocode Native application. Au
 
 The most up-to-date information for using Autocode is as follows:
 
-Clone this repository (the non-public code)
-Clone https://github.com/emoryhubbard/autocode-extension (the public extension)
-Clone https://github.com/emoryhubbard/tailwindify (for quick testing) into the parent folder of the cloned autocode-client. For example, if autocode-client was cloned into the Documents folder, then clone tailwindify into the Documents folder.
+- Clone this repository (the non-public code)
+- Clone https://github.com/emoryhubbard/autocode-extension (the public extension)
+- Clone https://github.com/emoryhubbard/tailwindify (for quick testing) into the parent folder of the cloned autocode-client. For example, if autocode-client was cloned into the Documents folder, then clone tailwindify into the Documents folder.
 
 Then:
-Create .env file in autocode-client and populate with example.env data, including your PROJECT_PATH to tailwindify, and your API keys
-Create .env file in autocode-extension and populate with example.env data (no need to add anything else)
-Create .env file in autocode-extension/web and populate with web/example.env data (no need to add anything else)
+- Create .env file in autocode-client and populate with example.env data, including your PROJECT_PATH to tailwindify, and your API keys
+- Create .env file in autocode-extension and populate with example.env data (no need to add anything else)
+- Create .env file in autocode-extension/web and populate with web/example.env data (no need to add anything else)
 
 Then:
-Run "npm install" in tailwindify
-Run "npm install" in autocode-client
-Run "npm install" in autocode-extension
-Run "npm install" in autocode-extension/web
-Run "npm run build" in autocode-extension/web
+- Run "npm install" in tailwindify
+- Run "npm install" in autocode-client
+- Run "npm install" in autocode-extension
+- Run "npm install" in autocode-extension/web
+- Run "npm run build" in autocode-extension/web
 
 Then:
-Run "python3 app.py" in autocode-client
-Run "npm run dev" in autocode-client
-Navigate to Run and Debug tab in autocode-extension and choose Run VS Code extension option
-Open tailwindify folder in new VS Code extension debug window that appears
-Open command pallete
-Run Autocode: Open Chat
-In the chat box type "Add a function called setLastVisit to page.jsx that uses the setLocalStorage function in utils.mjs to set lastVisit as the current time."
-In Test URL type http://localhost:3000
-Click Auto-Insert
+- Run "python3 app.py" in autocode-client
+- Run "npm run dev" in autocode-client
+- Navigate to Run and Debug tab in autocode-extension and choose Run VS Code extension option
+- Open tailwindify folder in new VS Code extension debug window that appears
+- Open command pallete
+- Run Autocode: Open Chat
+- In the chat box type "Add a function called setLastVisit to page.jsx that uses the setLocalStorage function in utils.mjs to set lastVisit as the current time."
+- In Test URL type http://localhost:3000
+- Click Auto-Insert
 
 The code snippet parser has problems. This parser is about 3000 lines of code and resides in a file called get-updated-file.ts in autocode-client. The main debug and feedback loop logic is found in execute-steps.ts in autocode-client. Other tools are scattered around.
 
