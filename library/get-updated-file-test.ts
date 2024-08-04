@@ -876,18 +876,19 @@ const tests = [
     [existingFile1, snippet4, "Test 4"],
     [existingFile1, snippet5, "Test 5"],
     [existingFile4_5, snippet4, "Test 4.5", "true"],
-     // The following test cases only apply to the retired missing placeholder system
+
+     // This block of test cases, 7 to 11, revealed flaws in retired missing placeholder system
     [existingFile7, snippet7, "Test 7", "true"], // original malformed snippet
-     // Normal snippet but revealed library bug in missing placeholder system
-    [existingFile8, snippet8, "Test 8", "true"],
+    [existingFile8, snippet8, "Test 8", "true"], // Normal snippet but revealed library bug in missing placeholder system
     [existingFile1, snippet9, "Test 9"],
-    // Normal snippet, never solved under missing placeholder system on purpose,
+    // 9 is normal snippet, never solved under missing placeholder system on purpose,
     // but might work with new lost code insertion system now (haven't tried).
     // See Missing placeholder system retired in Notes
     //[existingFile10, snippet10, "Test 10", "true"],
     // Not fixed yet, but might work now with new lost code insertion system (haven't tried).
     // See Test case 11 in Notes.
     //[existingFile1, snippet11, "Test 11"]
+
     [existingFile1, snippet12, "Test 12"],
     [existingFile1, snippet13],
     //[existingFile15, snippet15],
