@@ -1,7 +1,3 @@
-# Autocode
-
-The
-
 # Quick Start
 
 The most up-to-date information for using Autocode is as follows:
