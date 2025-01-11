@@ -1,4 +1,16 @@
-# Quick Start
+# Overview
+
+A self-testing and self-debugging code generator for React, which has gotten progressively more sophisticated.
+
+## Current Status
+
+The latest version is a VS Code extension which provides a chat interface as an AI coding assistant:
+
+![Image of Autocode being used to generate and insert code](ComplexSnippetCropped.png)
+
+After creating this VS Code extension version, I found a partner at my university, Nathan Spotten, who independently came up with a very similar idea and we began working on it together and renaming the joint project to AutoCodeChat. We are currently planning on creating a new code repository for it, which will be renamed to AutoCodeChat, and become a fork of an open-source AI coding assistant called Continue, by reworking it to instead have its GUI and functionality incorporated into Continue's interface, with our new tool's GUI, AutoCodeChat, being integrated and accessible through an action, and we are planning on making a PR when it is sufficiently robust. More details and updates will first be placed here as they become available.
+
+## Quick Start
 
 The most up-to-date information for using Autocode:
 
