@@ -12,7 +12,7 @@ The Back-And-Forth Problem:
 
 It can be put most simply as the constant back-and-forth between LLM and developer that occurs during a coding session, where the developer simply hands off the error to the LLM to get a quick and fast fix, changes the code and runs it, and does this repeatedly until it runs without errors, and console logs (or GUI output, or test cases) indicate it is working as intended.
 
-This VS Code extension version does it by having the LLM insert console log statements into the code it generates, navigates to a URL of the user's locally-running React app where the file they were trying to modify will have its code executed, then feed the results of the logs (and any errors) from loading that page with a headless browser (and there is also an option for doing it with a full browser so you can see it) to verify it is running correctly, and if not it tries again until it gets it working properly or gives up.
+This VS Code extension version does it by having the LLM insert console log statements into the code it generates, navigates to a URL of the user's locally-running React app where the file they were trying to modify will have its code executed, then feeds the results of the logs (and any errors) from loading that page with a headless browser (and there is also an option for doing it with a full browser so you can see it) to verify it is running correctly, and if not it tries again until it gets it working properly or gives up.
 
 It has solved this problem in principle but still needs some work--see [More Details on the Parser and Future Work](https://github.com/emoryhubbard/autocode-client?tab=readme-ov-file#more-details-on-the-parser-and-future-work).
 
