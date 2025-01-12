@@ -74,6 +74,8 @@ The main debug and feedback loop logic is found in execute-steps.ts in autocode-
 
 ## Older Prototype: Autocode Native Interface
 
+Below, you will find the previous versions which functioned as web applications before the transition to VS Code extension.
+
 The Autocode Native Interface was an expanded version of the original Autocode Classic web application, designed specifically for generating, testing, and debugging code for React applications. Unlike its predecessor, **[Autocode Classic](https://autocode-five.vercel.app/)**, the Autocode Native Interface runs on the user's machine for its back-end, while also continuing to use an Angular web app (running locally) for its front-end, which allows it to directly modifying and run the user's .js and .jsx files as part of its feedback loop, with the ultimate goal of helping React Developers automate implementation of app features through writing precise instructions.
 
 **[Autocode Milestones Video](https://youtu.be/bgMEVYLi2w8)**
