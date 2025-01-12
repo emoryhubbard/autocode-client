@@ -2,11 +2,23 @@
 
 A self-testing and self-debugging code generator for React, which has gotten progressively more sophisticated.
 
-## Current Status
-
 The latest version is a VS Code extension which provides a chat interface as an AI coding assistant:
 
 ![Image of Autocode being used to generate and insert code](ComplexSnippetCropped.png)
+
+## What Problem Does It Solve?
+
+It can be put most simply as the constant back-and-forth between LLM and developer that occurs during a coding session, where the developer simply hands off the error to the LLM to get a quick and fast fix, changes the code and runs it, and does this repeatedly until it runs without errors, and console logs (or GUI output, or test cases) indicate it is working as intended.
+
+This VS Code extension version does it by having the LLM insert console log statements into the code it generates, navigates to a URL of the user's locally-running React app where the file they were trying to modify will have its code executed, then feed the results of the logs (and any errors) from loading that page with a headless browser (and there is also an option for doing it with a full browser so you can see it) to verify it is running correctly, and if not it tries again until it gets it working properly or gives up.
+
+It has solved this problem in principle but still needs some work--see [More Details on the Parser and Future Work](#More Details on the Parser and Future Work).
+
+This problem is much harder than it looks (because it needs to run FAST--it can't just ask the LLM for a whole file, you have to ask it for snippets, and deal with all the edge cases to properly apply them, and prompt engineering, to keep the token count down so each LLM call takes only 2 or 3 seconds at most, since it might need to test and re-run 3 or 4 times to solve a problem), but there's even more: even if you get the first problem above solved, that means the developer can avoid back-and-forth for the one file is working on, but in the real world conditions are different--you will often need to edit multiple files to get a new feature in your app to work, so why not just in natural language tell it do a certain change in file x then a certain change in file y etc. in a single prompt, for as many steps as you can think of that would take to get the feature working?
+
+It hasn't solved this last problem yet, but I believe it can with further refinement, considering that many previous refinements allowed it to get to this point and solve harder problems.
+
+## Current Status
 
 After creating this VS Code extension version, it has since become a collaborative project (which we will soon create a new repository for due to the decision to build it into Continue): Nathan Spotten (another student from my university) independently came up with a very similar idea, and we are reworking the concept to be called AutoCodeChat and to instead have its GUI and functionality incorporated into a fork of an open-source AI coding assistant called Continue, with our new tool's GUI being integrated and accessible through an action, and we are planning on making a PR when it is sufficiently robust. More details and updates will first be placed here until we publish the new repository.
 
@@ -56,7 +68,7 @@ The main debug and feedback loop logic is found in execute-steps.ts in autocode-
 
 ## Older Prototype: Autocode Native Interface
 
-The Autocode Native Interface was an expanded version of the original Autocode application, designed specifically for generating, testing, and debugging code for React applications. Unlike its predecessor, **[Autocode Classic](https://autocode-five.vercel.app/)**, the Autocode Native Interface offers enhanced capabilities for modifying both .js and .jsx files, with the ultimate goal of helping React Developers automate implementation of app features through writing precise instructions.
+The Autocode Native Interface was an expanded version of the original Autocode Classic web application, designed specifically for generating, testing, and debugging code for React applications. Unlike its predecessor, **[Autocode Classic](https://autocode-five.vercel.app/)**, the Autocode Native Interface runs on the user's machine for its back-end, while also continuing to use an Angular web app (running locally) for its front-end, which allows it to directly modifying and run the user's .js and .jsx files as part of its feedback loop, with the ultimate goal of helping React Developers automate implementation of app features through writing precise instructions.
 
 **[Autocode Milestones Video](https://youtu.be/bgMEVYLi2w8)**
 
@@ -77,7 +89,7 @@ Note: Autocode is still early in development. Usage is a complex operation due t
 To use the Autocode Native Interface, developers must follow these steps:
 
 1. Clone the following repositories to their local machine:
-   - Autocode
+   - [Autocode](https://github.com/emoryhubbard/autocode)
    - [Autocode Native](https://github.com/emoryhubbard/autocode-native)
    - [Express Autocode API](https://github.com/emoryhubbard/express-autocode-api)
    - Their own repository that they desire to modify
