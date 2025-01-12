@@ -8,15 +8,21 @@ The latest version is a VS Code extension which provides a chat interface as an 
 
 ## What Problem Does It Solve?
 
+The Back-And-Forth Problem:
+
 It can be put most simply as the constant back-and-forth between LLM and developer that occurs during a coding session, where the developer simply hands off the error to the LLM to get a quick and fast fix, changes the code and runs it, and does this repeatedly until it runs without errors, and console logs (or GUI output, or test cases) indicate it is working as intended.
 
 This VS Code extension version does it by having the LLM insert console log statements into the code it generates, navigates to a URL of the user's locally-running React app where the file they were trying to modify will have its code executed, then feed the results of the logs (and any errors) from loading that page with a headless browser (and there is also an option for doing it with a full browser so you can see it) to verify it is running correctly, and if not it tries again until it gets it working properly or gives up.
 
-It has solved this problem in principle but still needs some work--see [More Details on the Parser and Future Work](#More Details on the Parser and Future Work).
+It has solved this problem in principle but still needs some work--see [More Details on the Parser and Future Work](https://github.com/emoryhubbard/autocode-client?tab=readme-ov-file#more-details-on-the-parser-and-future-work).
 
-This problem is much harder than it looks (because it needs to run FAST--it can't just ask the LLM for a whole file, you have to ask it for snippets, and deal with all the edge cases to properly apply them, and prompt engineering, to keep the token count down so each LLM call takes only 2 or 3 seconds at most, since it might need to test and re-run 3 or 4 times to solve a problem), but there's even more: even if you get the first problem above solved, that means the developer can avoid back-and-forth for the one file is working on, but in the real world conditions are different--you will often need to edit multiple files to get a new feature in your app to work, so why not just in natural language tell it do a certain change in file x then a certain change in file y etc. in a single prompt, for as many steps as you can think of that would take to get the feature working?
+This problem is much harder than it looks, because it needs to run FAST--it can't just ask the LLM for a whole file, you have to ask it for snippets, and deal with all the edge cases to properly apply them, and prompt engineering, to keep the token count down so each LLM call takes only 2 or 3 seconds at most, since it might need to test and re-run 3 or 4 times to solve a problem.
 
-It hasn't solved this last problem yet, but I believe it can with further refinement, considering that many previous refinements allowed it to get to this point and solve harder problems.
+The Changes-In-Mutiple-Files Problem:
+
+Even if you get the first problem above solved, that means the developer can avoid back-and-forth for the one file is working on, but in the real world conditions are different--you will often need to edit multiple files to get a new feature in your app to work, so why not just in natural language tell it do a certain change in file x then a certain change in file y etc. in a single prompt, for as many steps as you can think of that would take to get the feature working?
+
+It has solved the back-and-forth problem in theory, but hasn't yet solved the "ask for multiple file changes in one prompt" problem. I believe it can with further refinement, considering that many previous refinements allowed it to get to this point and solve harder problems already, and most imortantly that I've begun collaborating on this with a partner who independently had a very similar idea, and that others are working on very similar tools or pieces of problem, for example with the open-source AI coding assistant Continue.
 
 ## Current Status
 
