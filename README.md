@@ -14,9 +14,9 @@ It can be put most simply as the constant back-and-forth between LLM and develop
 
 This VS Code extension version does it by having the LLM insert console log statements into the code it generates, navigates to a URL of the user's locally-running React app where the file they were trying to modify will have its code executed, then feeds the results of the logs (and any errors) from loading that page with a headless browser (and there is also an option for doing it with a full browser so you can see it) to verify it is running correctly, and if not it tries again until it gets it working properly or gives up.
 
-It has solved this problem in principle but still needs some work--see [More Details on the Parser and Future Work](https://github.com/emoryhubbard/autocode-client?tab=readme-ov-file#more-details-on-the-parser-and-future-work).
+It has solved this problem in principle but still needs some work--see [More Details on Apply Snippet and Future Work](https://github.com/emoryhubbard/autocode-client?tab=readme-ov-file#more-details-on-the-parser-and-future-work).
 
-This problem is much harder than it looks, because it needs to run FAST--it can't just ask the LLM for a whole file, you have to ask it for snippets, and deal with all the edge cases to properly apply them, and prompt engineering, to keep the token count down so each LLM call takes only 2 or 3 seconds at most, since it might need to test and re-run 3 or 4 times to solve a problem.
+This problem is much harder than it looks, because it needs to run FAST--it can't just ask the LLM for a whole file, you have to ask it for snippets, and deal with all the edge cases to properly apply them (hence the elaborate abstract syntax tree [system for applying snippets](https://github.com/emoryhubbard/autocode-client?tab=readme-ov-file#more-details-on-the-parser-and-future-work) I developed), and prompt engineering, to keep the token count down so each LLM call takes only 2 or 3 seconds at most, since it might need to test and re-run 3 or 4 times to solve a problem. Not only that, but it required developing a system for extracting JSX code from the LLM's responses (which I originally [made a neural network](https://github.com/emoryhubbard/extract-js) for, then found a more robust way to do it here with an algorithm based on a JSX parser, although another alternative would be to get a JSON output from the LLM API that contains a JSX property).
 
 The Changes-In-Mutiple-Files Problem:
 
@@ -60,13 +60,13 @@ Then:
 - In Test URL type the local host URL for the page corresponding to the file in your React repo you are trying to modify (or http://localhost:3000 for tailwindify)
 - Click Auto-Insert
 
-## More Details on the Parser and Future Work
+## More Details on Apply Snippet and Future Work
 
-The Auto-Insert button isn't 100% reliable. The code snippet parser for Auto-Insert (essentially an Apply in Editor button) uses abstract syntax tree traversal and placheolder comments created by the LLM, but the LLM's placeholder comment oputput is not always consistent or complete enough for it to insert the code perfectly as intended, and it has been designed to anticipate several common LLM mistakes and be robust enough to sufficiently recover the intended meaning and insert accurately despite them.
+The Auto-Insert button isn't 100% reliable. The apply snippet system for Auto-Insert (essentially an Apply in Editor button) uses abstract syntax tree traversal and placheolder comments created by the LLM, but the LLM's placeholder comment oputput is not always consistent or complete enough for it to insert the code perfectly as intended, and it has been designed to anticipate several common LLM mistakes and be robust enough to sufficiently recover the intended meaning and insert accurately despite them.
 
 It's about 3000 lines of code (it was written rather hastily, due to the scope of the problem and a large number of edge cases, and still needs to be refactored into smaller individual files) and resides in a file called get-updated-file.ts in autocode-client. I plan on comparing this Apply in Editor feature to, and likely replacing it with, the Continue AI coding assistant's feature, which was released shortly after I designed this one, since it may be more robust or use better prompt engineering to ensure more consistent placeholder comment output.
 
-Even if Continue's Apply in Editor feature doesn't handle my test cases perfectly, it is probably a better starting point to work with to improve sufficiently to be able to handle them, but if not, I left off on improving the code snippet parser by attempting to fix it to solve test case 15. In order to see the error test case 15 generates, and to see if you have solved it, go to server.ts in autocode-client and uncomment the line that says getUpdatedFileTest().
+Even if Continue's Apply in Editor feature doesn't handle my test cases perfectly, it is probably a better starting point to work with to improve sufficiently to be able to handle them, but if not, I left off on improving the apply snippet system by attempting to fix it to solve test case 15. In order to see the error test case 15 generates, and to see if you have solved it, go to server.ts in autocode-client and uncomment the line that says getUpdatedFileTest().
 
 You can also test the program without using autocode-extension. Instead, you can change the .env variable FEATURENO in autocode-client to read FEATURE. This will cause it to automatically attempt to code the indicated feature when you run "npm run dev" in autocode-client, and allow you to discover new potential failures for new test cases more quickly than using the GUI.
 
