@@ -1,6 +1,8 @@
 # Overview
 
-Built with TypeScript, React, and Python as a VS Code extension, this AI coding assistant is a self-testing and self-debugging code generator for React developers. Instead of asking an LLM for code, running it and getting errors and asking it to fix them and repeat, Autocode does that work for you. It makes the desired code and embeds tests in it, runs it and verifies the results of the logs (and any errors), and if it's not running correctly it keeps trying to debug it until it works properly:
+Built with TypeScript, React, and Python as a VS Code extension, this AI coding assistant is a self-testing and self-debugging code generator for React developers.
+
+Instead of asking an LLM for code, running it and getting errors and asking it to fix them and repeat, Autocode does that work for you. It makes the desired code and embeds tests in it, runs it and verifies the results of the logs (and any errors), and if it's not running correctly it keeps trying to debug it until it works properly:
 
 ![Image of Autocode being used to generate and insert code](ComplexSnippetCropped.png)
 
