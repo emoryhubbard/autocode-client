@@ -1,8 +1,6 @@
 # Overview
 
-A self-testing and self-debugging code generator for React, which has gotten progressively more sophisticated.
-
-The latest version is a VS Code extension which provides a chat interface as an AI coding assistant:
+Built with TypeScript, React, and Python as a VS Code extension, this AI coding assistant is a self-testing and self-debugging code generator for React developers. Instead of asking an LLM for code, running it and getting errors and asking it to fix them and repeat, Autocode does that work for you. It makes the desired code and embeds tests in it, runs it and verifies the results of the logs (and any errors), and if it's not running correctly it keeps trying to debug it until it works properly:
 
 ![Image of Autocode being used to generate and insert code](ComplexSnippetCropped.png)
 
@@ -10,7 +8,7 @@ The latest version is a VS Code extension which provides a chat interface as an 
 
 The Back-And-Forth Problem:
 
-It can be put most simply as the constant back-and-forth between LLM and developer that occurs during a coding session, where the developer simply hands off the error to the LLM to get a quick and fast fix, changes the code and runs it, and does this repeatedly until it runs without errors, and console logs (or GUI output, or test cases) indicate it is working as intended.
+There is a constant back-and-forth between LLM and developer that can occur during a coding session, where the developer asks for code and runs it, and since both LLMs and humans are prone to generating code that doesn't run perfectly the first time without testing it, if there's a problem the developer then asks the LLM for a quick and fast fix (since it can often find errors quickly and effortlessly), changes the code and runs it, and does this repeatedly until it runs without errors, and console logs (or GUI output, or test cases) indicate it is working as intended.
 
 This VS Code extension version does it by having the LLM insert console log statements into the code it generates, navigates to a URL of the user's locally-running React app where the file they were trying to modify will have its code executed, then feeds the results of the logs (and any errors) from loading that page with a headless browser (and there is also an option for doing it with a full browser so you can see it) to verify it is running correctly, and if not it tries again until it gets it working properly or gives up.
 
@@ -20,9 +18,13 @@ This problem is much harder than it looks, because it needs to run FAST--it can'
 
 The Changes-In-Mutiple-Files Problem:
 
-Even if you get the first problem above solved, that means the developer can avoid back-and-forth for the one file he is working on, but in the real world conditions are different--you will often need to edit multiple files to get a new feature in your app to work, so why not just in natural language tell it do a certain change in file x then a certain change in file y etc. in a single prompt, for as many steps as you can think of that would take to get the feature working?
+Even if you get the first problem above solved, that means the developer can avoid back-and-forth for the one file he is working on, but in the real world conditions are different--you will often need to edit multiple files to get a new feature in your app to work, so why not just in natural language tell it do a certain change in file x then a certain change in file y etc. in a single prompt, for as many steps as you can think of that would take to implement the new feature?
 
 It has solved the back-and-forth problem in theory, but hasn't yet solved the "ask for multiple file changes in one prompt" problem. I believe it can with further refinement, considering that many previous refinements allowed it to get to this point and solve harder problems already, and most importantly that I've begun collaborating on this with a partner, [Nathan Spotten](https://github.com/spottenn) (another student from my university) who independently came up with a very similar idea, and that others are working on very similar tools or pieces of these problems, for example with the open-source AI coding assistant [Continue](https://github.com/continuedev/continue).
+
+The Task Decomposition Problem:
+
+If you can tell it to do certian code changes to certain files all in one natural language prompt for the purpose of implementing your feature, why not just tell it to implement your feature and decide how to do that on its own, so you don't have to describe precisely what code changes the new feature would need? Why not just have it generate its own list of code changes automatically and implement them in response to what feature you ask it to implement? The two previous problems would need to be solved very well first, and just having those two problems solved would aid developer productivity significantly already. I think it is possible to do this based on the unprecendented recent advances in AI predictive power and mutli-modaliy, but it would take a significant amount of engineering effort and collaboration (not just one or two developers), and to get it to be capable of doing it reliably most of the time for simple features where the focus is on function rather than form, and with multi-modal LLMs and complex visual feedback and debugging systems it could even be used to help solve the further problem of properly turning figmas into usable (maintainable, acceptable-quality) code.
 
 ## Current Status
 
